@@ -56,3 +56,9 @@ export class NotFoundError extends DomainError {
 export function isDomainError(e: unknown): e is DomainError {
   return e instanceof DomainError;
 }
+
+export class ConflictError extends DomainError {
+  constructor(code: string, message: string) {
+    super("conflict", code, message);
+  }
+}
