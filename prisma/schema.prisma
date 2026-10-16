@@ -1,0 +1,292 @@
+// Lodeline platform schema. See docs/plan.md §3.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  buyer
+  supplier
+  admin
+}
+
+enum Stage {
+  mine
+  separation
+  metal_alloy
+  magnet
+  component
+}
+
+enum Material {
+  ndfeb
+  smco
+  tungsten
+  tantalum
+  other
+}
+
+enum AuditStatus {
+  uploaded
+  parsing
+  classified
+  failed
+}
+
+enum EvidenceStatus {
+  requested
+  uploaded
+  extracted
+  in_review
+  accepted
+  rejected
+}
+
+enum PackStatus {
+  draft
+  generating
+  ready
+  delivered
+}
+
+enum OutreachStatus {
+  queued
+  sent
+  opened
+  reminded
+  responded
+  bounced
+}
+
+model Organization {
+  id        String            @id @default(uuid())
+  name      String
+  kind      String // buyer | supplier | operator
+  country   String?
+  createdAt DateTime          @default(now())
+  users     User[]
+  audits    PartsAudit[]
+  listings  SupplierListing[]
+}
+
+model User {
+  id              String        @id @default(uuid())
+  orgId           String?
+  org             Organization? @relation(fields: [orgId], references: [id])
+  role            Role          @default(buyer)
+  email           String        @unique
+  name            String?
+  emailVerifiedAt DateTime?
+  createdAt       DateTime      @default(now())
+  sessions        Session[]
+}
+
+/// Copied from LoadEnergy: only the SHA-256 of the token is stored.
+model Session {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+}
+
+model MagicLink {
+  id        String    @id @default(uuid())
+  email     String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+}
+
+// 1) Free audit
+model PartsAudit {
+  id              String        @id @default(uuid())
+  orgId           String?
+  org             Organization? @relation(fields: [orgId], references: [id])
+  leadEmail       String
+  companyName     String?
+  sourceFileKey   String
+  sourceFileName  String
+  sourceSha256    String
+  rowCount        Int
+  status          AuditStatus
+  llmModel        String?
+  promptVersion   String?
+  accessTokenHash String?       @unique
+  createdAt       DateTime      @default(now())
+  parts           AuditPart[]
+  pack            EvidencePack?
+}
+
+model AuditPart {
+  id                 String     @id @default(uuid())
+  auditId            String
+  audit              PartsAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  rowIndex           Int
+  partNumber         String?
+  description        String
+  supplierName       String?
+  quantity           Decimal?
+  materials          Material[]
+  llmConfidence      Float?
+  llmRationale       String?
+  undocumentedStages Stage[]
+  ruleVersion        String
+
+  @@index([auditId])
+}
+
+// 2) Evidence pack
+model EvidencePack {
+  id               String            @id @default(uuid())
+  auditId          String            @unique
+  audit            PartsAudit        @relation(fields: [auditId], references: [id])
+  orgId            String
+  status           PackStatus        @default(draft)
+  priceCents       Int
+  stripeCheckoutId String?
+  paidAt           DateTime?
+  pdfFileKey       String?
+  generatedAt      DateTime?
+  createdAt        DateTime          @default(now())
+  requests         SupplierRequest[]
+}
+
+model Supplier {
+  id           String            @id @default(uuid())
+  name         String
+  country      String?
+  contactEmail String?
+  contactName  String?
+  orgId        String?
+  requests     SupplierRequest[]
+}
+
+model SupplierRequest {
+  id              String             @id @default(uuid())
+  packId          String
+  pack            EvidencePack       @relation(fields: [packId], references: [id])
+  supplierId      String
+  supplier        Supplier           @relation(fields: [supplierId], references: [id])
+  partIds         String[]
+  stagesRequested Stage[]
+  tokenHash       String             @unique
+  tokenExpiresAt  DateTime
+  revokedAt       DateTime?
+  outreachStatus  OutreachStatus     @default(queued)
+  lastEmailAt     DateTime?
+  reminderCount   Int                @default(0)
+  nextReminderAt  DateTime?
+  documents       EvidenceDocument[]
+  emails          OutreachEmail[]
+
+  @@index([nextReminderAt])
+}
+
+model OutreachEmail {
+  id                String          @id @default(uuid())
+  requestId         String
+  request           SupplierRequest @relation(fields: [requestId], references: [id])
+  kind              String // initial | reminder | thanks
+  providerMessageId String?
+  status            String
+  sentAt            DateTime?
+  error             String?
+}
+
+model EvidenceDocument {
+  id              String          @id @default(uuid())
+  requestId       String
+  request         SupplierRequest @relation(fields: [requestId], references: [id])
+  fileKey         String
+  fileName        String
+  mime            String
+  sha256          String
+  pageCount       Int?
+  status          EvidenceStatus  @default(uploaded)
+  rejectionReason String?
+  textExtracted   Boolean         @default(false)
+  uploadedAt      DateTime        @default(now())
+  claims          EvidenceClaim[]
+}
+
+model EvidenceClaim {
+  id            String           @id @default(uuid())
+  documentId    String
+  document      EvidenceDocument @relation(fields: [documentId], references: [id])
+  partId        String?
+  issuer        String?
+  issueDate     DateTime?
+  expiryDate    DateTime?
+  stage         Stage?
+  facilityName  String?
+  country       String?
+  material      Material?
+  citations     Json // [{page, quote}] required per field
+  llmConfidence Float?
+  reviewStatus  EvidenceStatus   @default(in_review)
+  reviewedById  String?
+  reviewedAt    DateTime?
+  reviewerNote  String?
+}
+
+/// Append-only (copied from LoadEnergy). No update/delete paths exist in code.
+model AuditEntry {
+  id                     String   @id @default(uuid())
+  action                 String
+  actorUserId            String?
+  actorSupplierRequestId String?
+  subjectId              String
+  payload                Json
+  ip                     String?
+  createdAt              DateTime @default(now())
+
+  @@index([subjectId])
+  @@index([createdAt])
+}
+
+// 3) Marketplace (P2)
+model SupplierListing {
+  id                   String       @id @default(uuid())
+  orgId                String
+  org                  Organization @relation(fields: [orgId], references: [id])
+  stages               Stage[]
+  materials            Material[]
+  countries            String[]
+  verifiedAt           DateTime?
+  verifiedFromClaimIds String[]
+  published            Boolean      @default(false)
+  referrals            Referral[]
+}
+
+model Referral {
+  id             String             @id @default(uuid())
+  listingId      String
+  listing        SupplierListing    @relation(fields: [listingId], references: [id])
+  buyerOrgId     String
+  status         String // intro | won | lost
+  dealValueCents Int?
+  commissionBps  Int
+  createdAt      DateTime           @default(now())
+  invoice        CommissionInvoice?
+}
+
+model CommissionInvoice {
+  id               String    @id @default(uuid())
+  referralId       String    @unique
+  referral         Referral  @relation(fields: [referralId], references: [id])
+  amountCents      Int
+  paymentStatus    String    @default("unpaid")
+  paidAt           DateTime?
+  stripeTransferId String?
+}

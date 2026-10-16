@@ -1,0 +1,92 @@
+# Render Blueprint: Lodeline platform (Oregon, US-only).
+# New > Blueprint in the Render dashboard, pick this repo. Secrets marked
+# `sync: false` are prompted for at creation and never stored in git.
+# Production boot refuses to start without DATABASE_URL, S3_DOCS_BUCKET,
+# APP_BASE_URL and LLM_ZDR_CONFIRMED=true (src/composition/root.ts).
+
+databases:
+  - name: lodeline-db
+    databaseName: lodeline
+    user: lodeline
+    plan: basic-1gb
+    postgresMajorVersion: "16"
+    region: oregon
+    ipAllowList: [] # Reachable only from inside Render's network.
+
+services:
+  - type: web
+    name: lodeline
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci --include=dev && npm run build
+    # Runs before each deploy on paid instance types.
+    preDeployCommand: npx prisma migrate deploy
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lodeline-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22.20.0"
+      - key: APP_BASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      # Storage (US region)
+      - key: S3_DOCS_BUCKET
+        sync: false
+      - key: AWS_REGION
+        value: us-west-2
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      # Email (required in production: postmark or resend)
+      - key: EMAIL_PROVIDER
+        value: postmark
+      - key: EMAIL_FROM
+        value: "Lodeline <info@lodeline.org>"
+      - key: POSTMARK_SERVER_TOKEN
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_WEBHOOK_SECRET
+        sync: false
+      # LLM (set LLM_ZDR_CONFIRMED=true only after vendor ZDR is confirmed in writing)
+      - key: LLM_ZDR_CONFIRMED
+        sync: false
+      - key: LLM_PROVIDER
+        value: openai-compatible
+      - key: LLM_BASE_URL
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      # Stripe (week 2)
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_PACK_STANDARD
+        sync: false
+      # Abuse protection
+      - key: TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: TURNSTILE_REQUIRED
+        value: "true"
+      - key: CRON_SECRET
+        generateValue: true
+      - key: SUPPLIER_TOKEN_TTL_DAYS
+        value: "30"
