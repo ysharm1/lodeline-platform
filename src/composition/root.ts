@@ -17,6 +17,7 @@ import type { Repository } from "@/repository/repository";
 import { AuditService } from "@/services/audit";
 import { FreeAuditService } from "@/services/free-audit";
 import { MagicLinkService } from "@/services/magic-link";
+import type { EmailSender } from "@/services/notifications";
 import { MemoryDocumentStorage } from "@/services/storage";
 import { PrismaSessionStore } from "@/session/prisma-store";
 import { InMemorySessionStore, type SessionStore } from "@/session/store";
@@ -26,6 +27,8 @@ export interface Container {
   sessions: SessionStore;
   audit: AuditService;
   magicLinks: MagicLinkService;
+  email: EmailSender;
+  baseUrl: string;
   freeAudit: FreeAuditService;
   limits: Record<"audit" | "magicLink" | "supplierUpload" | "ask", RateLimiter>;
 }
@@ -63,15 +66,19 @@ function build(): Container {
   const audit = new AuditService(repo);
   const storage = isS3Configured() ? S3DocumentStorage.fromEnv() : new MemoryDocumentStorage();
   const llmConfig = llmConfigFromEnv();
+  const email = emailSenderFromEnv();
+  const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
   return {
+    email,
+    baseUrl,
     repo,
     sessions,
     audit,
     magicLinks: new MagicLinkService({
       repo,
       sessions,
-      email: emailSenderFromEnv(),
-      baseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000",
+      email,
+      baseUrl,
       adminEmails: (process.env.SEED_ADMIN_EMAIL ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
     }),
     freeAudit: new FreeAuditService({

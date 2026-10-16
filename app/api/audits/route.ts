@@ -4,6 +4,7 @@ import { clientIp } from "@/http/rate-limit";
 import { errorResponse, json } from "@/http/respond";
 import { verifyTurnstile } from "@/http/turnstile";
 import { MAX_UPLOAD_BYTES } from "@/services/parts-parser";
+import { emailAuditResults } from "@/services/audit-email";
 import { getAuthContext } from "@/http/auth-context";
 
 export const runtime = "nodejs";
@@ -37,8 +38,13 @@ export async function POST(req: Request) {
       ip,
       actorUserId: ctx?.userId ?? null,
     });
-    // TODO(week 1 follow-up): email the results link to leadEmail.
-    return json(result, 201);
+    const r = await c.freeAudit.results(result.auditId, result.accessToken);
+    const audit = r.audit;
+    const emailed = await emailAuditResults(
+      { email: c.email, audit: c.audit, baseUrl: c.baseUrl },
+      { ...result, leadEmail: audit.leadEmail, flagged: r.summary.flagged, total: r.summary.total, ip }
+    );
+    return json({ ...result, emailed }, 201);
   } catch (e) {
     return errorResponse(e);
   }
