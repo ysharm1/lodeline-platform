@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     const form = await req.formData();
     const rl = await c.limits.magicLink.check(`ml:${ip}`);
     if (rl.ok) {
-      const { id, email } = await c.magicLinks.request(form.get("email"));
+      const { id, email } = await c.magicLinks.request(form.get("email"), form.get("next"));
       await c.audit.append({ action: "auth.magic_link_requested", subjectId: id, payload: { emailDomain: email.split("@")[1] }, ip });
     }
     // Same response either way: no account or rate-limit enumeration.

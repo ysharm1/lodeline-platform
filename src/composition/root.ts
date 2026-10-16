@@ -18,11 +18,32 @@ import { AuditService } from "@/services/audit";
 import { FreeAuditService } from "@/services/free-audit";
 import { MagicLinkService } from "@/services/magic-link";
 import type { EmailSender } from "@/services/notifications";
-import { MemoryDocumentStorage } from "@/services/storage";
+import { LocalDiskStorage, type DocumentStorage } from "@/services/storage";
+import { DomainError } from "@/domain/errors";
+import { billingFromEnv, packPriceCents } from "@/infra/billing";
+import type { PlatformDeps } from "@/services/deps";
+import { PackService } from "@/services/packs";
+import { SupplierService } from "@/services/suppliers";
+import { EvidenceIntakeService } from "@/services/evidence-intake";
+import { ReviewService } from "@/services/review";
+import { DirectoryService } from "@/services/directory";
+import { geocoderFromEnv } from "@/services/geocoder";
 import { PrismaSessionStore } from "@/session/prisma-store";
 import { InMemorySessionStore, type SessionStore } from "@/session/store";
 
+export interface Platform {
+  deps: PlatformDeps;
+  packs: PackService;
+  suppliers: SupplierService;
+  intake: EvidenceIntakeService;
+  review: ReviewService;
+  directory: DirectoryService;
+}
+
 export interface Container {
+  /** DB-backed services (packs, suppliers, review, directory). Throws without DATABASE_URL. */
+  platform(): Platform;
+  storage: DocumentStorage;
   repo: Repository;
   sessions: SessionStore;
   audit: AuditService;
@@ -43,6 +64,9 @@ export function assertProductionConfig(env: NodeJS.ProcessEnv = process.env): vo
   if (!env.S3_DOCS_BUCKET && !dev) missing.push("S3_DOCS_BUCKET");
   if (!env.APP_BASE_URL) missing.push("APP_BASE_URL");
   if (env.LLM_ZDR_CONFIRMED !== "true") missing.push("LLM_ZDR_CONFIRMED=true");
+  if (!env.SESSION_SECRET && !env.TOKEN_ENCRYPTION_KEY) missing.push("SESSION_SECRET");
+  if (!dev && !env.STRIPE_SECRET_KEY) missing.push("STRIPE_SECRET_KEY");
+  if (!dev && !env.CRON_SECRET) missing.push("CRON_SECRET");
   if (missing.length) throw new Error(`Refusing to start in production; missing: ${missing.join(", ")}`);
 }
 
@@ -64,11 +88,37 @@ function build(): Container {
     sessions = new InMemorySessionStore();
   }
   const audit = new AuditService(repo);
-  const storage = isS3Configured() ? S3DocumentStorage.fromEnv() : new MemoryDocumentStorage();
+  const baseUrlEarly = process.env.APP_BASE_URL ?? "http://localhost:3000";
+  const storage: DocumentStorage = isS3Configured()
+    ? S3DocumentStorage.fromEnv()
+    : new LocalDiskStorage(process.env.LOCAL_UPLOAD_DIR ?? ".uploads", baseUrlEarly, process.env.SESSION_SECRET ?? "dev-local-upload-secret");
   const llmConfig = llmConfigFromEnv();
   const email = emailSenderFromEnv();
-  const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
+  const baseUrl = baseUrlEarly;
+  const llm = new LlmClient(llmConfig);
+  let platform: Platform | undefined;
+  const audit_ = audit;
   return {
+    storage,
+    platform() {
+      if (platform) return platform;
+      if (!db) throw new DomainError("unavailable", "DATABASE_REQUIRED", "This feature needs DATABASE_URL (run `npm run db:start`).");
+      const deps: PlatformDeps = {
+        db,
+        audit: audit_,
+        email,
+        storage,
+        billing: billingFromEnv(),
+        llm,
+        geocoder: geocoderFromEnv(db),
+        baseUrl,
+        packPriceCents: packPriceCents(),
+      };
+      const packs = new PackService(deps);
+      const suppliers = new SupplierService(deps, packs);
+      platform = { deps, packs, suppliers, intake: new EvidenceIntakeService(deps, suppliers), review: new ReviewService(deps), directory: new DirectoryService(deps) };
+      return platform;
+    },
     email,
     baseUrl,
     repo,
@@ -84,7 +134,7 @@ function build(): Container {
     freeAudit: new FreeAuditService({
       repo,
       storage,
-      llm: new LlmClient(llmConfig),
+      llm,
       audit,
       requireLlm: process.env.NODE_ENV === "production" && !!llmConfig.apiKey,
     }),

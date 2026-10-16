@@ -15,6 +15,7 @@ export const ROLE_NAVIGATION: Record<Role, readonly NavigationItem[]> = {
   buyer: [
     { id: "audits", label: "Parts audits", path: "/audit" },
     { id: "packs", label: "Evidence packs", path: "/buyer/packs" },
+    { id: "directory", label: "Supplier directory", path: "/suppliers" },
   ],
   supplier: [
     // Suppliers mainly act through tokenized links (/s/[token]); an account

@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["exceljs"],
+  serverExternalPackages: ["exceljs", "@react-pdf/renderer", "unpdf"],
   async headers() {
     return [
       {

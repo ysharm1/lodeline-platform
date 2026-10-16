@@ -30,6 +30,13 @@ export interface MagicLinkRepository {
   markEmailVerified(userId: string, at: Date): Promise<void>;
 }
 
+/** Only same-site relative paths ("/x"), never "//host" or "/\\host". */
+export function safeNextPath(next: unknown): string | null {
+  if (typeof next !== "string" || next.length > 500) return null;
+  if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return null;
+  return next;
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function normalizeEmail(raw: unknown): string {
@@ -58,7 +65,7 @@ export class MagicLinkService {
   }
 
   /** Returns the link id (for auditing). Never returns the token. */
-  async request(rawEmail: unknown): Promise<{ id: string; email: string }> {
+  async request(rawEmail: unknown, next?: unknown): Promise<{ id: string; email: string }> {
     const email = normalizeEmail(rawEmail);
     const token = generateSessionToken();
     const now = this.now();
@@ -71,7 +78,8 @@ export class MagicLinkService {
       createdAt: now,
     };
     await this.d.repo.createMagicLink(record);
-    const url = `${this.d.baseUrl.replace(/\/$/, "")}/api/auth/callback?token=${encodeURIComponent(token)}`;
+    const safeNext = safeNextPath(next);
+    const url = `${this.d.baseUrl.replace(/\/$/, "")}/api/auth/callback?token=${encodeURIComponent(token)}${safeNext ? `&next=${encodeURIComponent(safeNext)}` : ""}`;
     await this.d.email.send({
       to: email,
       subject: "Your Lodeline sign-in link",

@@ -3,6 +3,7 @@ import { container } from "@/composition/root";
 import { isDomainError } from "@/domain/errors";
 import { MATERIAL_LABELS, STAGE_LABELS } from "@/services/stage-rules";
 import { Disclaimer } from "../../_components/disclaimer";
+import { ActionButton } from "../../_components/action-button";
 
 export const dynamic = "force-dynamic";
 
@@ -80,8 +81,11 @@ export default async function AuditResults({
         <h2 className="font-semibold">Next step: an evidence pack</h2>
         <p className="text-sm text-muted">
           We request origin documents from your suppliers, match each to a stage, and hand over a pack with gaps and next
-          questions. (Checkout coming soon. Email info@lodeline.org.)
+          questions. Fixed fee, paid by card through Stripe.
         </p>
+        {audit.status === "classified" && summary.flagged > 0 ? (
+          <ActionButton url="/api/packs" body={{ auditId: audit.id, accessToken: t }} label="Order an evidence pack" />
+        ) : null}
       </section>
       <Disclaimer />
     </div>

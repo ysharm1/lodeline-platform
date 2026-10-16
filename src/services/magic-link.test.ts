@@ -60,3 +60,11 @@ describe("magic link", () => {
     expect(repo.users.size).toBe(1);
   });
 });
+
+import { safeNextPath } from "./magic-link";
+describe("magic link next path", () => {
+  it("allows only same-site relative paths", () => {
+    expect(safeNextPath("/audit/x?t=1")).toBe("/audit/x?t=1");
+    for (const bad of ["//evil.com", "https://evil.com", "/\\evil.com", "evil", 5, null]) expect(safeNextPath(bad)).toBeNull();
+  });
+});

@@ -15,6 +15,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <nav className="flex gap-4 text-sm text-muted">
             <Link href="/audit" className="hover:text-paper">Free parts audit</Link>
+            {!ctx ? <Link href="/suppliers" className="hover:text-paper">Supplier directory</Link> : null}
             {nav.map((n) => (
               <Link key={n.id} href={n.path} className="hover:text-paper">{n.label}</Link>
             ))}
