@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "buildCommand": "prisma migrate deploy && next build",
+  "crons": [{ "path": "/api/cron/reminders", "schedule": "0 15 * * *" }],
+  "functions": {
+    "app/api/s/[token]/documents/route.ts": { "maxDuration": 60 },
+    "app/api/cron/reminders/route.ts": { "maxDuration": 60 },
+    "app/api/packs/[packId]/pdf/route.ts": { "maxDuration": 60 },
+    "app/api/admin/packs/[packId]/generate/route.ts": { "maxDuration": 60 }
+  }
+}

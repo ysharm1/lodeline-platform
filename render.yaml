@@ -78,7 +78,7 @@ services:
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: STRIPE_PRICE_PACK_STANDARD
-        sync: false
+        sync: false # optional: a Stripe Price id; otherwise PACK_PRICE_CENTS is used
       # Abuse protection
       - key: TURNSTILE_SITE_KEY
         sync: false
@@ -90,3 +90,36 @@ services:
         generateValue: true
       - key: SUPPLIER_TOKEN_TTL_DAYS
         value: "30"
+      # Evidence pack fixed fee in cents (200000-500000). Stripe test keys outside production.
+      - key: PACK_PRICE_CENTS
+        value: "250000"
+      # Supplier-link token encryption (reminders resend the same link)
+      - key: TOKEN_ENCRYPTION_KEY
+        generateValue: true
+      # Geocoding: nominatim (default, cached, 1 req/s) | mapbox | none
+      - key: GEOCODER
+        value: nominatim
+      - key: GEOCODER_USER_AGENT
+        value: "Lodeline/0.2 (info@lodeline.org)"
+      - key: MAPBOX_TOKEN
+        sync: false
+
+  # Daily reminder sweep (day 3/7/14 schedule is computed per request).
+  - type: cron
+    name: lodeline-reminders
+    runtime: node
+    region: oregon
+    schedule: "0 15 * * *"
+    buildCommand: "echo no build"
+    startCommand: 'curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_BASE_URL/api/cron/reminders"'
+    envVars:
+      - key: CRON_SECRET
+        fromService:
+          type: web
+          name: lodeline
+          envVarKey: CRON_SECRET
+      - key: APP_BASE_URL
+        fromService:
+          type: web
+          name: lodeline
+          envVarKey: APP_BASE_URL

@@ -37,33 +37,102 @@ src/composition   root.ts: adapter selection + production boot checks
 app/              pages + app/api route handlers
 ```
 
-## What works (Week 1)
+## Setup with Postgres (no Docker needed)
 
-- **Free parts audit, end to end**: `/audit` → `POST /api/audits` (multipart CSV/XLSX, ≤5 MB, ≤2,000 rows) → file gate → parse → classify → stage rules → `/audit/[id]?t=<token>` results page. Results are only reachable with the per-audit access token (only its hash is stored).
-- **Drawing rejection** on upload: CAD/drawing/image/PDF extensions refused, and content is sniffed (PDF/DWG magic bytes, DXF/STEP headers, binary-in-CSV, non-zip XLSX) so renamed files are refused too. Nothing is stored for rejected files.
-- **LLM wrapper** (`src/infra/llm.ts`): refuses unless `LLM_ZDR_CONFIRMED=true`; logs only provider/model/promptVersion/tokens/ms, never content; sends `store:false`; validates output with zod and falls back to keywords. With no `LLM_API_KEY` it runs the deterministic keyword classifier (mock). If ZDR is not confirmed, the audit uses keywords only, so no content leaves the server.
-- **Stage rules**: NdFeB/SmCo need mine → separation → metal/alloy → magnet; W/Ta need mine → separation → metal. A stage is undocumented unless an accepted claim covers it (all of them, in the free audit).
-- **Magic-link login**: 15-minute single-use links (stored hashed), sessions with hashed tokens in an HttpOnly cookie, and no account enumeration. Email goes through the `EmailSender` port: console by default, Postmark and Resend adapters selected with `EMAIL_PROVIDER`.
-- **Roles** `buyer | supplier | admin` with `ROLE_NAVIGATION`. Page guards redirect to login, and the wrong role gets a 404.
-- **Security**: per-IP rate limits (audits 10/h, magic links 5/15 min), size caps, a honeypot, a Turnstile hook (enforced when `TURNSTILE_SECRET_KEY` is set, fails closed with `TURNSTILE_REQUIRED=true`), and security headers. Production refuses to boot without a DB, S3, a base URL and LLM ZDR confirmation.
-- **Audit log**: an append-only `AuditEntry` on every write (audit created/classified/failed, magic link requested/consumed, logout). The payload carries ids and metadata only, never parts content. Visible at `/admin/audit-log`.
-- **Prisma schema** with every model from the plan, plus the initial migration in `prisma/migrations/`.
+```bash
+npm run db:start            # embedded Postgres 16 on :54329, data in .pgdata/ (prints DATABASE_URL)
+export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54329/lodeline
+npx prisma migrate deploy
+SEED_ADMIN_EMAIL=you@example.com npm run seed   # admin + 4 clearly-marked EXAMPLE directory rows
+npm run dev
+```
 
-## Stubbed / TODO
+Tests: `npm test` runs the `unit` project and the `db` project. The `db` project starts an embedded Postgres (or uses `TEST_DATABASE_URL`), runs `prisma migrate deploy` and exercises the real SQL. CI (`.github/workflows/ci.yml`) uses a `postgres:16` service container.
 
-| Area | State |
-|---|---|
-| Evidence packs (`/buyer/packs`, `POST /api/packs`, Stripe Checkout) | stub page / 501 (week 2) |
-| Supplier token portal (`/s/[token]`, `/api/s/[token]`, `/documents`) | stub / 501 (week 2) |
-| Outreach + reminder cron (`/api/cron/reminders`) | 501 (week 2) |
-| PDF text, claim extraction with citation verification | not started (week 2) |
-| Admin review queue, claims PATCH, pack PDF | stub / 501 (week 3) |
-| Supplier directory, referrals, commission ledger | stub (P2) |
-| Emailing the audit results link to the lead | TODO (in-page link only today) |
-| Postmark/Resend adapters | implemented but never exercised against the live APIs |
-| Rate limiter | in-process (single instance only) |
-| Turnstile widget | rendered when `TURNSTILE_SITE_KEY` is set; no keys yet |
+## What works
+
+### Free audit (Week 1)
+- `/audit` upload, then a file gate (drawings refused), parse, classify (LLM wrapper or keyword fallback), and stage rules. Results are at `/audit/[id]?t=<token>`.
+- **The results link is emailed** to the lead through the `EmailSender` port. The audit log records `audit.results_emailed`, or `audit.results_email_failed` if the send fails (non-fatal).
+
+### Evidence pack ($2k–$5k fixed fee)
+- `POST /api/packs` `{auditId, accessToken}`: a signed-in buyer who holds the audit link creates a pack, gets an Organization (created lazily) and is sent to **Stripe Checkout**. The price is `PACK_PRICE_CENTS`, validated to the 200000–500000 range (default $2,500); `STRIPE_PRICE_PACK_STANDARD` can be used instead. With no Stripe key, outside production, packs are marked paid immediately (dev billing).
+- `POST /api/webhooks/stripe`: verifies the raw-body signature, ignores unpaid sessions, and is idempotent per event id (`WebhookEvent`) and per pack.
+- `/buyer/packs/[id]`: shows status per part and stage (documented / covered country / pending review / requested / no document), a Leaflet + OSM map of facilities from accepted evidence, supplier requests with revoke, the add-supplier form and the PDF download.
+
+### Supplier evidence
+- Buyers add suppliers for selected parts, which creates a `SupplierRequest`:
+  - 256-bit token, looked up by SHA-256 only. It is also stored AES-GCM encrypted (`TOKEN_ENCRYPTION_KEY`), so reminders can resend the same link.
+  - Expires after `SUPPLIER_TOKEN_TTL_DAYS` (30) and can be revoked.
+- Outreach emails go out through Postmark or Resend (console in dev). **Reminders at day 3, 7 and 14** after the initial email come from `GET|POST /api/cron/reminders`, which requires `Authorization: Bearer $CRON_SECRET`. Vercel Cron sends that header automatically; Render runs a `type: cron` service that curls the route. Reminders stop on an upload, a bounce, revocation or expiry.
+- `POST /api/webhooks/email` receives Resend events (Svix signature) or Postmark events (Basic auth with `EMAIL_WEBHOOK_SECRET`). Opens and bounces update the request, and duplicate events are ignored.
+- `/s/[token]` is the supplier portal, with no login. Upload flow:
+  1. The browser asks for a **presigned PUT** (S3 with signed Content-Length and SSE; local-disk HMAC URLs in dev).
+  2. It PUTs the file directly to storage. Bodies never pass through the app server, so the 4.5 MB Vercel limit doesn't apply. The cap is 20 MB.
+  3. It calls `/documents` to process the file.
+- Processing:
+  - Magic-byte check and SHA-256, then per-page text with **unpdf**.
+  - **Drawing rejection**: CAD extensions; title-block heuristics (sparse page plus 3 or more of SCALE / REV / SHEET n OF n / DRAWN BY / CHECKED / TOLERANCES / UNLESS OTHERWISE SPECIFIED / projection…, or 5 or more on any page); ITAR / export-controlled / CUI markings. Image-only PDFs are kept but flagged for manual review (no OCR).
+  - **Claim extraction** (issuer, date, stage, facility, address, country) through `llm.ts` (guarded by ZDR; a deterministic "Label: value" extractor runs without a key). The **verbatim-citation filter** keeps a field only if its quote appears verbatim (whitespace-normalised, case-sensitive) on the cited page and contains the value. Claims with no verified field are dropped.
+  - **Geocoding**: Nominatim by default, with a contactable User-Agent, at most 1 request per second, and a **DB cache that includes misses**. Mapbox is available with `GEOCODER=mapbox`. Latitude, longitude and ISO country are stored.
+  - **Covered countries (CN, RU, IR, KP)** are flagged deterministically when the stated OR geocoded country is covered, and any mismatch is recorded in `coveredReason`.
+- Every claim lands as `in_review`.
+
+### Admin review
+- `/admin/review`: the queue. `/admin/review/[claimId]`: a side-by-side view of the cited page text with the quotes highlighted, a link to the source PDF page (presigned, 5 min), and accept / reject / edit. Edits re-geocode and re-flag. Every decision is audited. **Only accepted claims ever reach the buyer page, the map or the PDF.**
+- Documents with no extractable claims are listed. Manual claims can be added via `POST /api/admin/documents/[id]/claims`.
+
+### Evidence pack PDF
+- `@react-pdf/renderer`, built from the DB only, contains:
+  - the stage table per part
+  - accepted claims with verbatim citations
+  - a facility coordinate table (no tile snapshot in the PDF)
+  - a document register with SHA-256
+  - open questions per gap
+  - stated limits, and the disclaimer on the first and last page and in the footer
+- `GET /api/packs/[id]/pdf` renders it on demand. `POST /api/admin/packs/[id]/generate` stores it in S3 and marks the pack `ready`.
+
+### Supplier directory
+- `/suppliers`: public. Uses Postgres full-text search (`websearch_to_tsquery` with a GIN expression index) plus filters for material, stage, country, excluded country and verified-only. JSON is at `GET /api/suppliers`.
+- **Ask box** (`POST /api/suppliers/ask`, rate limited):
+  - The LLM, or a keyword parser when there is no key, turns the question into structured filters, and the DB query runs.
+  - The answer can only cite the returned rows. Unknown `[n]` refs cause a fallback to a deterministic answer, and the LLM is never called with zero rows.
+- Admin CRUD is at `/admin/suppliers`. **Verification** needs evidence documents with at least one accepted claim, and records the document and claim ids. The seed creates 4 fictional rows marked as examples.
+
+### Platform
+- **Rate limiting in Postgres** (`RateLimitBucket`, one atomic upsert per check, shared across instances) for audits, magic links, supplier uploads and Ask.
+- Magic links carry a validated `next` path, so ordering a pack from the audit page survives login.
 
 ## Deploy
 
-`render.yaml`: Oregon web service plus Postgres `basic-1gb`, `preDeployCommand: npx prisma migrate deploy`. Every secret is declared `sync: false`.
+### Render (Oregon), primary
+`render.yaml` sets up:
+- the web service, with `preDeployCommand: npx prisma migrate deploy`
+- Postgres `basic-1gb`
+- a daily `type: cron` reminder job
+- every secret declared with `sync: false`
+
+### Vercel, alternative
+`vercel.json` sets:
+- region `iad1` (US East)
+- a daily cron on `/api/cron/reminders`; set `CRON_SECRET` and Vercel sends the Bearer header
+- 60 s max duration for the processing, PDF and cron routes
+- `prisma migrate deploy` in the build
+
+Use a US-region **Neon** or **Supabase** Postgres. For Neon, `DATABASE_URL` is the pooled URL; if you add `directUrl` to the schema, migrations use the direct URL. For Supabase, use the session pooler (port 5432) for migrations. Uploads already bypass the 4.5 MB function body limit through presigned S3 PUTs.
+
+### S3 bucket
+- us-west-2, Block Public Access on, SSE-S3.
+- CORS: allow `PUT` and `GET` from `APP_BASE_URL` with the `content-type` and `x-amz-server-side-encryption` headers.
+
+## Stubbed / not done
+
+| Area | State |
+|---|---|
+| OCR for scanned certificates | not built (scans flagged for manual entry) |
+| Background job queue | processing runs inside the upload request (60 s max); move to a worker/queue when volumes grow |
+| Referrals / commission ledger | schema only (`Referral`, `CommissionInvoice`); admin page still a stub |
+| Supplier accounts | suppliers use token links only |
+| Map snapshot image in PDF | coordinate table instead (no tile-server dependency at render time) |
+| Live Postmark/Resend/Stripe/Nominatim calls | adapters implemented and unit-tested with fakes; not exercised against live services from CI |
+
