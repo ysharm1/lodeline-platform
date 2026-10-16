@@ -48,6 +48,8 @@ enum EvidenceStatus {
 
 enum PackStatus {
   draft
+  pending_payment
+  collecting
   generating
   ready
   delivered
@@ -71,6 +73,7 @@ model Organization {
   users     User[]
   audits    PartsAudit[]
   listings  SupplierListing[]
+  packs     EvidencePack[]
 }
 
 model User {
@@ -153,6 +156,8 @@ model EvidencePack {
   audit            PartsAudit        @relation(fields: [auditId], references: [id])
   orgId            String
   status           PackStatus        @default(draft)
+  org              Organization      @relation(fields: [orgId], references: [id])
+  createdById      String?
   priceCents       Int
   stripeCheckoutId String?
   paidAt           DateTime?
@@ -181,7 +186,10 @@ model SupplierRequest {
   partIds         String[]
   stagesRequested Stage[]
   tokenHash       String             @unique
+  /// AES-256-GCM ciphertext of the raw token so reminders can resend the same link.
+  tokenCiphertext String?
   tokenExpiresAt  DateTime
+  createdAt       DateTime           @default(now())
   revokedAt       DateTime?
   outreachStatus  OutreachStatus     @default(queued)
   lastEmailAt     DateTime?
@@ -215,29 +223,38 @@ model EvidenceDocument {
   pageCount       Int?
   status          EvidenceStatus  @default(uploaded)
   rejectionReason String?
+  sizeBytes       Int?
+  pages           DocumentPage[]
   textExtracted   Boolean         @default(false)
   uploadedAt      DateTime        @default(now())
   claims          EvidenceClaim[]
 }
 
 model EvidenceClaim {
-  id            String           @id @default(uuid())
-  documentId    String
-  document      EvidenceDocument @relation(fields: [documentId], references: [id])
-  partId        String?
-  issuer        String?
-  issueDate     DateTime?
-  expiryDate    DateTime?
-  stage         Stage?
-  facilityName  String?
-  country       String?
-  material      Material?
-  citations     Json // [{page, quote}] required per field
-  llmConfidence Float?
-  reviewStatus  EvidenceStatus   @default(in_review)
-  reviewedById  String?
-  reviewedAt    DateTime?
-  reviewerNote  String?
+  id              String           @id @default(uuid())
+  documentId      String
+  document        EvidenceDocument @relation(fields: [documentId], references: [id])
+  partId          String?
+  issuer          String?
+  address         String?
+  latitude        Float?
+  longitude       Float?
+  countryIso      String?
+  coveredCountry  Boolean          @default(false)
+  coveredReason   String?
+  geocodeProvider String?
+  issueDate       DateTime?
+  expiryDate      DateTime?
+  stage           Stage?
+  facilityName    String?
+  country         String?
+  material        Material?
+  citations       Json // [{page, quote}] required per field
+  llmConfidence   Float?
+  reviewStatus    EvidenceStatus   @default(in_review)
+  reviewedById    String?
+  reviewedAt      DateTime?
+  reviewerNote    String?
 }
 
 /// Append-only (copied from LoadEnergy). No update/delete paths exist in code.
@@ -257,16 +274,25 @@ model AuditEntry {
 
 // 3) Marketplace (P2)
 model SupplierListing {
-  id                   String       @id @default(uuid())
-  orgId                String
-  org                  Organization @relation(fields: [orgId], references: [id])
-  stages               Stage[]
-  materials            Material[]
-  countries            String[]
-  verifiedAt           DateTime?
-  verifiedFromClaimIds String[]
-  published            Boolean      @default(false)
-  referrals            Referral[]
+  id                      String        @id @default(uuid())
+  orgId                   String?
+  org                     Organization? @relation(fields: [orgId], references: [id])
+  name                    String
+  summary                 String        @default("")
+  website                 String?
+  city                    String?
+  countryIso              String?
+  isExample               Boolean       @default(false)
+  verifiedFromDocumentIds String[]
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  stages                  Stage[]
+  materials               Material[]
+  countries               String[]
+  verifiedAt              DateTime?
+  verifiedFromClaimIds    String[]
+  published               Boolean       @default(false)
+  referrals               Referral[]
 }
 
 model Referral {
@@ -289,4 +315,44 @@ model CommissionInvoice {
   paymentStatus    String    @default("unpaid")
   paidAt           DateTime?
   stripeTransferId String?
+}
+
+model DocumentPage {
+  id         String           @id @default(uuid())
+  documentId String
+  document   EvidenceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  page       Int
+  text       String
+
+  @@unique([documentId, page])
+}
+
+/// Geocoder results, cached so each address is looked up once per provider.
+model GeocodeCache {
+  id          String   @id @default(uuid())
+  queryHash   String   @unique
+  query       String
+  provider    String
+  found       Boolean
+  latitude    Float?
+  longitude   Float?
+  countryIso  String?
+  displayName String?
+  createdAt   DateTime @default(now())
+}
+
+/// Fixed-window rate-limit counters shared by every app instance.
+model RateLimitBucket {
+  key     String   @id
+  count   Int
+  resetAt DateTime
+
+  @@index([resetAt])
+}
+
+/// Processed webhook ids (Stripe / email) for idempotency.
+model WebhookEvent {
+  id         String   @id
+  source     String
+  receivedAt DateTime @default(now())
 }

@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   try {
     const c = container();
     const ip = clientIp(req.headers);
-    const rl = c.limits.audit.check(`audit:${ip}`);
+    const rl = await c.limits.audit.check(`audit:${ip}`);
     if (!rl.ok) return json({ error: { code: "RATE_LIMITED", message: "Too many uploads. Try again later." } }, 429, { "Retry-After": String(rl.retryAfterSec) });
 
     const len = Number(req.headers.get("content-length") ?? 0);

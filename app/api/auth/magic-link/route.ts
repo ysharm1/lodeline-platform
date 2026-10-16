@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     const c = container();
     const ip = clientIp(req.headers);
     const form = await req.formData();
-    const rl = c.limits.magicLink.check(`ml:${ip}`);
+    const rl = await c.limits.magicLink.check(`ml:${ip}`);
     if (rl.ok) {
       const { id, email } = await c.magicLinks.request(form.get("email"));
       await c.audit.append({ action: "auth.magic_link_requested", subjectId: id, payload: { emailDomain: email.split("@")[1] }, ip });

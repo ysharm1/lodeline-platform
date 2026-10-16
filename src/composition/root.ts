@@ -10,7 +10,7 @@ import { PrismaClient } from "@prisma/client";
 import { emailSenderFromEnv } from "@/infra/email";
 import { LlmClient, llmConfigFromEnv } from "@/infra/llm";
 import { S3DocumentStorage, isS3Configured } from "@/infra/s3-document-storage";
-import { RateLimiter } from "@/http/rate-limit";
+import { MemoryRateLimiter, PostgresRateLimiter, type RateLimiter } from "@/http/rate-limit";
 import { InMemoryRepository } from "@/repository/in-memory";
 import { PrismaRepository } from "@/repository/prisma";
 import type { Repository } from "@/repository/repository";
@@ -27,7 +27,7 @@ export interface Container {
   audit: AuditService;
   magicLinks: MagicLinkService;
   freeAudit: FreeAuditService;
-  limits: { audit: RateLimiter; magicLink: RateLimiter };
+  limits: Record<"audit" | "magicLink" | "supplierUpload" | "ask", RateLimiter>;
 }
 
 export function assertProductionConfig(env: NodeJS.ProcessEnv = process.env): void {
@@ -43,12 +43,17 @@ export function assertProductionConfig(env: NodeJS.ProcessEnv = process.env): vo
   if (missing.length) throw new Error(`Refusing to start in production; missing: ${missing.join(", ")}`);
 }
 
+function limiter(db: PrismaClient | null, scope: string, limit: number, windowMs: number): RateLimiter {
+  return db ? new PostgresRateLimiter(db, scope, limit, windowMs) : new MemoryRateLimiter(limit, windowMs);
+}
+
 function build(): Container {
   assertProductionConfig();
   let repo: Repository;
   let sessions: SessionStore;
+  let db: PrismaClient | null = null;
   if (process.env.DATABASE_URL) {
-    const db = new PrismaClient();
+    db = new PrismaClient();
     repo = new PrismaRepository(db);
     sessions = new PrismaSessionStore(db);
   } else {
@@ -77,8 +82,10 @@ function build(): Container {
       requireLlm: process.env.NODE_ENV === "production" && !!llmConfig.apiKey,
     }),
     limits: {
-      audit: new RateLimiter(Number(process.env.RATE_LIMIT_AUDITS_PER_HOUR ?? 10), 3_600_000),
-      magicLink: new RateLimiter(5, 15 * 60_000),
+      audit: limiter(db, "audit", Number(process.env.RATE_LIMIT_AUDITS_PER_HOUR ?? 10), 3_600_000),
+      magicLink: limiter(db, "magic-link", 5, 15 * 60_000),
+      supplierUpload: limiter(db, "supplier-upload", 30, 3_600_000),
+      ask: limiter(db, "ask", 30, 3_600_000),
     },
   };
 }
