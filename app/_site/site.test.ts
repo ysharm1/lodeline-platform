@@ -59,6 +59,9 @@ describe("SEO", () => {
       const r = robots();
       expect(r.sitemap).toBe("https://lodeline.org/sitemap.xml");
       expect(JSON.stringify(r.rules)).toContain("/admin/");
+      // No disallow rule may prefix-match a public page such as /suppliers or /for-suppliers.
+      const dis = ([] as string[]).concat(...[r.rules].flat().map((x) => [x.disallow ?? []].flat()));
+      for (const u of urls) expect(dis.some((d) => new URL(u).pathname.startsWith(d)), u).toBe(false);
     } finally {
       process.env.APP_BASE_URL = prev;
     }
