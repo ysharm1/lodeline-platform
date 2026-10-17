@@ -25,6 +25,7 @@ export function ActionButton({ url, body, label, method = "POST", confirm, class
           setBusy(false);
           if (!res.ok) return setErr(json?.error?.message ?? "Request failed.");
           if (json.checkoutUrl) window.location.href = json.checkoutUrl;
+          else if (typeof json.redirect === "string" && json.redirect.startsWith("/")) window.location.href = json.redirect;
           else router.refresh();
         }}
       >

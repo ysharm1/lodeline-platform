@@ -12,10 +12,10 @@ export default async function AuditResults({
   searchParams,
 }: {
   params: Promise<{ auditId: string }>;
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; demo?: string }>;
 }) {
   const { auditId } = await params;
-  const { t } = await searchParams;
+  const { t, demo } = await searchParams;
   let data;
   try {
     data = await container().freeAudit.results(auditId, t);
@@ -27,6 +27,12 @@ export default async function AuditResults({
   const flagged = parts.filter((p) => p.undocumentedStages.length > 0);
   return (
     <div className="space-y-8">
+      {demo === "1" ? (
+        <p className="rounded border border-accent/60 bg-accent/10 p-3 text-sm">
+          Free demo: a fictional parts list run through the real audit pipeline. Bookmark this page to come back to it, or{" "}
+          <a href="/audit" className="underline">upload your own parts list</a>.
+        </p>
+      ) : null}
       <header className="space-y-2">
         <p className="font-mono text-xs text-muted">Audit {audit.id.slice(0, 8)} · {audit.sourceFileName}</p>
         <h1 className="text-3xl font-semibold">

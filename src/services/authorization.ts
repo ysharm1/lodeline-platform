@@ -26,6 +26,8 @@ export const ROLE_NAVIGATION: Record<Role, readonly NavigationItem[]> = {
     { id: "review", label: "Review queue", path: "/admin/review" },
     { id: "packs", label: "Packs", path: "/admin/packs" },
     { id: "suppliers", label: "Suppliers", path: "/admin/suppliers" },
+    { id: "applications", label: "Applications", path: "/admin/applications" },
+    { id: "leads", label: "Leads", path: "/admin/leads" },
     { id: "referrals", label: "Referrals", path: "/admin/referrals" },
     { id: "audit-log", label: "Audit log", path: "/admin/audit-log" },
   ],
