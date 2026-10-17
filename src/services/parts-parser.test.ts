@@ -32,7 +32,9 @@ describe("parts parser", () => {
     ws.addRow(["A-1", "Servo actuator", "Moog"]);
     const buf = new Uint8Array(await wb.xlsx.writeBuffer());
     const parts = await parsePartsFile("bom.xlsx", buf);
-    expect(parts).toEqual([{ rowIndex: 1, partNumber: "A-1", description: "Servo actuator", supplierName: "Moog", quantity: null }]);
+    expect(parts).toEqual([
+      { rowIndex: 1, partNumber: "A-1", description: "Servo actuator", supplierName: "Moog", quantity: null, mpn: null, manufacturer: "Moog", material: null, notes: null },
+    ]);
   });
 
   it.each(["rotor.dwg", "housing.step", "assy.pdf", "photo.png", "part.dxf", "x.sldprt"])("rejects drawing-like file %s", (name) => {
@@ -55,5 +57,42 @@ describe("parts parser", () => {
   it("rejects oversize and unknown types", () => {
     expect(() => detectPartsFileKind("bom.csv", new Uint8Array(5 * 1024 * 1024 + 1))).toThrow(expect.objectContaining({ code: "FILE_TOO_LARGE" }));
     expect(() => detectPartsFileKind("bom.docx", enc("x"))).toThrow(expect.objectContaining({ code: "FILE_TYPE_UNSUPPORTED" }));
+  });
+
+  it("maps material, manufacturer, MPN and notes columns with broad synonyms", () => {
+    expect(mapColumns(["Line", "Item #", "Mfr Part Number", "Part Description", "Matl", "MFR", "Vendor", "Remarks", "Qty"])).toEqual({
+      partNumber: 1,
+      mpn: 2,
+      description: 3,
+      material: 4,
+      manufacturer: 5,
+      supplierName: 6,
+      notes: 7,
+      quantity: 8,
+    });
+    expect(mapColumns(["MPN", "Desc.", "Manufacturer Name", "Material Grade", "Comments"])).toEqual({ mpn: 0, description: 1, manufacturer: 2, material: 3, notes: 4 });
+    expect(mapColumns(["Manufacturer P/N", "Description", "Make", "Alloy", "Note"])).toEqual({ mpn: 0, description: 1, manufacturer: 2, material: 3, notes: 4 });
+    expect(mapColumns(["Vendor Part No.", "Description", "Supplier Name", "Magnet Grade"])).toEqual({ mpn: 0, description: 1, supplierName: 2, material: 3 });
+  });
+
+  it("keeps every mapped column on the parsed row", () => {
+    const [p] = parseCsv("Part Number,MPN,Description,Material,Manufacturer,Supplier,Notes,Qty\nINT-1,T491A106K016AT,CAP 10UF,Ta,KEMET,Digi-Key,per drawing rev B,2000\n");
+    expect(p).toEqual({
+      rowIndex: 1,
+      partNumber: "INT-1",
+      mpn: "T491A106K016AT",
+      description: "CAP 10UF",
+      material: "Ta",
+      manufacturer: "KEMET",
+      supplierName: "Digi-Key",
+      notes: "per drawing rev B",
+      quantity: 2000,
+    });
+  });
+
+  it("falls back: MPN fills part number, manufacturer fills supplier, MPN-only rows survive", () => {
+    const parts = parseCsv("MPN,Description,Mfr\nSMCO5 5X4MM,,Standex-Meder\nX-2,Widget,\n");
+    expect(parts[0]).toMatchObject({ partNumber: "SMCO5 5X4MM", mpn: "SMCO5 5X4MM", description: "SMCO5 5X4MM", supplierName: "Standex-Meder", manufacturer: "Standex-Meder" });
+    expect(parts[1]).toMatchObject({ partNumber: "X-2", supplierName: null, manufacturer: null });
   });
 });

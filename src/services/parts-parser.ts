@@ -12,10 +12,19 @@ export const MAX_ROWS = 2000;
 
 export interface ParsedPart {
   rowIndex: number;
+  /** Buyer's own part number (falls back to the MPN when the list has no separate part-number column). */
   partNumber: string | null;
   description: string;
+  /** Supplier / vendor; falls back to the manufacturer when the list has no supplier column. */
   supplierName: string | null;
   quantity: number | null;
+  /** Manufacturer part number, when the list has its own MPN column. */
+  mpn: string | null;
+  manufacturer: string | null;
+  /** Material / grade / alloy column, verbatim. */
+  material: string | null;
+  /** Notes / comments / remarks column, verbatim. */
+  notes: string | null;
 }
 
 export type PartsFileKind = "csv" | "xlsx";
@@ -74,18 +83,39 @@ export function detectPartsFileKind(fileName: string, bytes: Uint8Array): PartsF
   throw new DomainError("unsupported", "FILE_TYPE_UNSUPPORTED", "Upload a .csv or .xlsx parts list.", "file");
 }
 
-const HEADER_PATTERNS: Record<keyof Omit<ParsedPart, "rowIndex">, RegExp> = {
-  partNumber: /^(part\s*(no|num|number|#)?|p\/?n|item\s*(no|number)?|mpn|sku)\.?$/i,
-  description: /^(desc(ription)?|part\s*name|name|item\s*desc(ription)?|component)$/i,
-  supplierName: /^(supplier|vendor|manufacturer|mfr|mfg|source)(\s*name)?$/i,
-  quantity: /^(qty|quantity|count|units?)$/i,
-};
+type Column = keyof Omit<ParsedPart, "rowIndex">;
 
-export function mapColumns(headers: string[]): Partial<Record<keyof Omit<ParsedPart, "rowIndex">, number>> {
-  const out: Partial<Record<keyof Omit<ParsedPart, "rowIndex">, number>> = {};
+/**
+ * Header synonyms, tried in this order for each header so the more specific
+ * columns win ("Mfr Part Number" is an MPN, not a manufacturer or part number).
+ * Headers are normalised first: lower case, punctuation (except /, #) to spaces.
+ */
+const HEADER_PATTERNS: [Column, RegExp][] = [
+  ["mpn", /^(mpn|mfr?g?\s*(part|p\/?n|pn|#|no|number)\s*(no|num|number|#)?|manufacturer\s*(part|p\/?n|pn|#)\s*(no|num|number|#)?|manufacturers\s*part\s*(no|number|#)?|vendor\s*(part|p\/?n|pn)\s*(no|num|number|#)?|supplier\s*(part|p\/?n|pn)\s*(no|num|number|#)?|catalog\s*(no|number|#)|cat\s*(no|#))$/],
+  ["partNumber", /^(part\s*(no|num|number|#)?|p\/?n|pn|item\s*(no|number|#)?|sku|internal\s*(part|p\/?n|pn)\s*(no|number|#)?|our\s*part\s*(no|number|#)?|component\s*(no|number|#|id))$/],
+  ["description", /^(desc(ription)?|part\s*desc(ription)?|part\s*name|name|item\s*desc(ription)?|component|item\s*name|product\s*desc(ription)?)$/],
+  ["manufacturer", /^(manufacturer|mfr|mfg|manuf|maker|make|brand|oem)(\s*name)?$/],
+  ["supplierName", /^(supplier|vendor|source|distributor|seller)(\s*name)?$/],
+  ["material", /^(material|materials|matl|mat l|material\s*(spec|grade|type|description)|composition|alloy|grade|magnet\s*(material|grade|type))$/],
+  ["notes", /^(notes?|comments?|remarks?|memo)$/],
+  ["quantity", /^(qty|quantity|count|units?|qty\s*per|ext\s*qty)$/],
+];
+
+function normalizeHeader(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/['’]/g, " ")
+    .replace(/[^a-z0-9/#]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+export function mapColumns(headers: string[]): Partial<Record<Column, number>> {
+  const out: Partial<Record<Column, number>> = {};
   headers.forEach((raw, i) => {
-    const h = raw.trim();
-    for (const [key, re] of Object.entries(HEADER_PATTERNS) as [keyof typeof HEADER_PATTERNS, RegExp][]) {
+    const h = normalizeHeader(raw);
+    if (!h) return;
+    for (const [key, re] of HEADER_PATTERNS) {
       if (out[key] === undefined && re.test(h)) {
         out[key] = i;
         return;
@@ -94,7 +124,7 @@ export function mapColumns(headers: string[]): Partial<Record<keyof Omit<ParsedP
   });
   // Fallback: a header merely containing "desc" counts as description.
   if (out.description === undefined) {
-    const i = headers.findIndex((h) => /desc/i.test(h));
+    const i = headers.findIndex((h, j) => /desc/i.test(h) && !Object.values(out).includes(j));
     if (i >= 0) out.description = i;
   }
   return out;
@@ -128,19 +158,28 @@ export function rowsToParts(rows: unknown[][]): ParsedPart[] {
     const r = rows[i];
     const description = cell(r[cols.description]);
     const partNumber = cols.partNumber !== undefined ? cell(r[cols.partNumber]) : "";
-    if (!description && !partNumber) continue;
+    const mpnRaw = cols.mpn !== undefined ? cell(r[cols.mpn]) : "";
+    if (!description && !partNumber && !mpnRaw) continue;
     if (parts.length >= MAX_ROWS) {
       throw new ValidationError("FILE_TOO_MANY_ROWS", `Parts lists are limited to ${MAX_ROWS} rows.`, "file");
     }
-    const supplier = cols.supplierName !== undefined ? cell(r[cols.supplierName]) : "";
+    const get = (k: Column) => (cols[k] !== undefined ? cell(r[cols[k]!]) : "");
+    const mpn = get("mpn");
+    const manufacturer = get("manufacturer");
+    const supplier = get("supplierName");
     const qtyRaw = cols.quantity !== undefined ? cell(r[cols.quantity]).replace(/,/g, "") : "";
     const qty = qtyRaw === "" ? null : Number(qtyRaw);
+    const clip = (v: string, n: number) => (v ? v.slice(0, n) : null);
     parts.push({
       rowIndex: i,
-      partNumber: partNumber || null,
-      description: (description || partNumber).slice(0, 1000),
-      supplierName: supplier || null,
+      partNumber: clip(partNumber || mpn, 200),
+      description: (description || partNumber || mpn).slice(0, 1000),
+      supplierName: clip(supplier || manufacturer, 200),
       quantity: qty !== null && Number.isFinite(qty) ? qty : null,
+      mpn: clip(mpn, 200),
+      manufacturer: clip(manufacturer, 200),
+      material: clip(get("material"), 300),
+      notes: clip(get("notes"), 1000),
     });
   }
   if (parts.length === 0) throw new ValidationError("FILE_NO_ROWS", "No parts rows found.", "file");
