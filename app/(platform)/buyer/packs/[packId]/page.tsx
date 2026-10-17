@@ -22,7 +22,7 @@ export default async function PackPage({ params, searchParams }: { params: Promi
     throw e;
   }
   const { pack, matrix, accepted, requests } = await p.packs.view(packId);
-  const flaggedParts = pack.audit.parts.filter((x) => x.undocumentedStages.length > 0);
+  const flaggedParts = pack.audit.parts.filter((x) => x.coverage !== "not_likely");
   const points = accepted
     .filter((c) => c.latitude != null && c.longitude != null)
     .map((c) => ({ id: c.id, lat: c.latitude!, lng: c.longitude!, label: c.facilityName ?? c.address ?? c.supplier.name, stage: c.stage ? STAGE_LABELS[c.stage] : "stage not stated", covered: c.coveredCountry }));

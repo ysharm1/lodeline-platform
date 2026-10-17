@@ -21,4 +21,11 @@ describe("audit results email", () => {
     expect(await emailAuditResults({ email, audit: new AuditService(repo), baseUrl: "x" }, { auditId: "a", accessToken: "t", leadEmail: "a@b.co", flagged: 0, total: 1 })).toBe(false);
     expect(repo.entries[0].action).toBe("audit.results_email_failed");
   });
+  it("states likely and possible counts separately when given", async () => {
+    const repo = new InMemoryRepository();
+    const email = new ConsoleEmailSender(true);
+    await emailAuditResults({ email, audit: new AuditService(repo), baseUrl: "https://app.test" }, { auditId: "a1", accessToken: "t", leadEmail: "x@acme.com", flagged: 5, total: 9, likely: 3, possible: 2 });
+    expect(email.sent[0].text).toContain("3 of 9 parts are likely covered");
+    expect(email.sent[0].text).toContain("2 are possible: confirm the material with the supplier");
+  });
 });

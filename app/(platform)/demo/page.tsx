@@ -11,8 +11,8 @@ export const metadata = {
 
 const WORKFLOW = [
   ["Directory", "Search documented suppliers by material, stage and country.", "/suppliers"],
-  ["Free audit", "Upload a parts list. We flag parts likely to contain covered material and the stages with no document.", "/audit"],
-  ["Evidence pack", "Order a fixed-fee pack for the flagged parts, paid by card.", "/pack"],
+  ["Free audit", "Upload a parts list. Each part is sorted into likely covered, possible (confirm with supplier) or likely not covered, with the reason, plus the stages with no document.", "/audit"],
+  ["Evidence pack", "Order a fixed-fee pack for the likely and possible parts, paid by card.", "/pack"],
   ["Supplier uploads", "Each supplier gets a private, expiring link to upload origin documents. Drawings are rejected.", null],
   ["Review", "Every extracted claim cites the document verbatim and is accepted or rejected by a Lodeline reviewer.", null],
   ["Pack PDF", "A stage-by-stage record per part, with covered-country flags, a document register and open questions.", "/sample-evidence-pack"],
@@ -27,8 +27,9 @@ export default function DemoPage() {
         <p className="font-mono text-xs uppercase tracking-widest text-accent">Free demo · no sign-up</p>
         <h1 className="text-4xl font-semibold tracking-tight">See the free parts audit on a sample list.</h1>
         <p className="text-muted">
-          This runs a fictional motor and actuator parts list through the same pipeline as a real audit: parse, classify each part for NdFeB or SmCo
-          magnets, tungsten and tantalum, and list the upstream stages that have no supplier document yet.
+          This runs a fictional motor and actuator parts list through the same pipeline as a real audit: parse, sort each part into likely covered
+          (NdFeB or SmCo magnets, tungsten, tantalum), possible: confirm with supplier, or likely not covered, with the reason
+          for each, and list the upstream stages that have no supplier document yet.
         </p>
         <div className="flex flex-wrap items-center gap-4">
           <ActionButton url="/api/demo" label="Run the demo audit" className="rounded bg-accent text-ink px-4 py-2 font-medium disabled:opacity-50" />

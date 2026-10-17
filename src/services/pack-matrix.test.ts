@@ -25,4 +25,15 @@ describe("pack matrix", () => {
     const rows = buildPackMatrix(parts, [{ ...req, stagesRequested: [...req.stagesRequested], revoked: true }], [{ id: "c1", requestId: "r1", partId: "p9", stage: "mine", reviewStatus: "accepted", coveredCountry: false }]);
     expect(rows[0].cells.every((c) => c.status === "no_document")).toBe(true);
   });
+  it("keeps possible parts (labelled in the PDF) and drops not-likely parts", () => {
+    const rows = buildPackMatrix(
+      [
+        { id: "a", partNumber: "A", description: "BLDC", supplierName: null, materials: ["ndfeb"], coverage: "possible" },
+        { id: "b", partNumber: "B", description: "legacy", supplierName: null, materials: ["ndfeb"], coverage: "not_likely" },
+      ],
+      [],
+      []
+    );
+    expect(rows.map((r) => r.part.id)).toEqual(["a"]);
+  });
 });

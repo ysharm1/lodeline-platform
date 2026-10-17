@@ -48,5 +48,5 @@ export const MATERIAL_LABELS: Record<Material, string> = {
   smco: "SmCo magnet",
   tungsten: "Tungsten",
   tantalum: "Tantalum",
-  other: "No critical mineral flagged",
+  other: "No covered material",
 };

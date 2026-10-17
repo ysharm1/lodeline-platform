@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const audit = r.audit;
     const emailed = await emailAuditResults(
       { email: c.email, audit: c.audit, baseUrl: c.baseUrl },
-      { ...result, leadEmail: audit.leadEmail, flagged: r.summary.flagged, total: r.summary.total, ip }
+      { ...result, leadEmail: audit.leadEmail, flagged: r.summary.flagged, total: r.summary.total, likely: r.coverage.likely, possible: r.coverage.possible, ip }
     );
     return json({ ...result, emailed }, 201);
   } catch (e) {

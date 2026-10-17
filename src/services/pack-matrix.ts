@@ -13,6 +13,8 @@ export interface MatrixPart {
   description: string;
   supplierName: string | null;
   materials: Material[];
+  /** Free-audit category; "possible" parts are labelled "confirm with supplier" in the pack. */
+  coverage?: "likely" | "possible" | "not_likely";
 }
 export interface MatrixRequest {
   id: string;
@@ -48,7 +50,7 @@ export function buildPackMatrix(parts: MatrixPart[], requests: MatrixRequest[], 
   const reqById = new Map(requests.map((r) => [r.id, r]));
   const appliesTo = (c: MatrixClaim, partId: string) => (c.partId ? c.partId === partId : (reqById.get(c.requestId)?.partIds ?? []).includes(partId));
   return parts
-    .filter((p) => requiredStagesFor(p.materials).length > 0)
+    .filter((p) => p.coverage !== "not_likely" && requiredStagesFor(p.materials).length > 0)
     .map((part) => ({
       part,
       cells: requiredStagesFor(part.materials).map((stage): MatrixCell => {

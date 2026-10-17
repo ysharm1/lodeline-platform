@@ -107,7 +107,7 @@ export class PackService {
     if (!pack) throw new NotFoundError("PACK_NOT_FOUND", "Pack not found.");
     const claims = pack.requests.flatMap((r) => r.documents.flatMap((doc) => doc.claims.map((c) => ({ ...c, requestId: r.id, document: doc, supplier: r.supplier }))));
     const matrix = buildPackMatrix(
-      pack.audit.parts.map((p) => ({ id: p.id, partNumber: p.partNumber, description: p.description, supplierName: p.supplierName, materials: p.materials as Material[] })),
+      pack.audit.parts.map((p) => ({ id: p.id, partNumber: p.partNumber, description: p.description, supplierName: p.supplierName, materials: p.materials as Material[], coverage: p.coverage })),
       pack.requests.map((r) => ({ id: r.id, partIds: r.partIds, stagesRequested: r.stagesRequested as Stage[], revoked: !!r.revokedAt })),
       claims.map((c): MatrixClaim => ({ id: c.id, requestId: c.requestId, partId: c.partId, stage: c.stage as Stage | null, reviewStatus: c.reviewStatus, coveredCountry: c.coveredCountry }))
     );

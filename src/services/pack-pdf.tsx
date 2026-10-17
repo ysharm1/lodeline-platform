@@ -17,6 +17,7 @@ export const STATED_LIMITS = [
   "Only documents supplied by the listed suppliers were reviewed; Lodeline did not audit facilities.",
   "A stage is shown as documented only where a reviewer accepted a claim whose quote appears verbatim on the cited page.",
   "Covered-country flags (CN, RU, IR, KP) are applied deterministically from the stated country and the geocoded address.",
+  "Parts were selected from the buyer's parts list as likely covered or possible (confirm with supplier). These are classifications from part data, not supplier statements; parts marked possible stay listed until the supplier confirms the material.",
   "Geocoded coordinates are approximate (OpenStreetMap/Mapbox) and identify a location, not a verified facility.",
   "Documents can be outdated, incomplete or inaccurate; dates and issuers are reported as stated.",
 ];
@@ -89,7 +90,10 @@ export function PackPdf({ data }: { data: PackPdfData }) {
         </View>
         {data.matrix.map((r) => (
           <View key={r.part.id} style={s.row} wrap={false}>
-            <Cell w="22%">{r.part.partNumber ?? "-"} {r.part.description.slice(0, 60)}</Cell>
+            <Cell w="22%">
+              {r.part.partNumber ?? "-"} {r.part.description.slice(0, 60)}
+              {r.part.coverage === "possible" ? " (possible: confirm with supplier)" : ""}
+            </Cell>
             <Cell w="18%">{data.supplierForPart[r.part.id] ?? r.part.supplierName ?? "-"}</Cell>
             <Cell w="60%">{r.cells.map((c) => `${STAGE_LABELS[c.stage]}: ${STATUS_LABEL[c.status]}`).join("  ·  ")}</Cell>
           </View>
