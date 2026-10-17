@@ -9,6 +9,15 @@ export type Stage = (typeof STAGES)[number];
 export const MATERIALS = ["ndfeb", "smco", "tungsten", "tantalum", "other"] as const;
 export type Material = (typeof MATERIALS)[number];
 
+/**
+ * Free-audit result category for a part:
+ *  - likely: a rule, the material column or a verified MPN/manufacturer pattern names a covered material
+ *  - possible: a weaker or conflicting signal; confirm with the supplier
+ *  - not_likely: an explicit non-covered signal (ferrite, AlNiCo, verified ferrite motor series) or no signal at all
+ */
+export const COVERAGES = ["likely", "possible", "not_likely"] as const;
+export type Coverage = (typeof COVERAGES)[number];
+
 export type AuditStatus = "uploaded" | "parsing" | "classified" | "failed";
 
 export interface AuthContext {
