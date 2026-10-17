@@ -7,7 +7,7 @@ const alias = { "@": fileURLToPath(new URL("./src", import.meta.url)) };
 export default defineConfig({
   test: {
     projects: [
-      { resolve: { alias }, oxc, test: { name: "unit", environment: "node", include: ["src/**/*.test.ts"], exclude: ["src/**/*.db.test.ts"] } },
+      { resolve: { alias }, oxc, test: { name: "unit", environment: "node", include: ["src/**/*.test.ts", "app/**/*.test.ts"], exclude: ["src/**/*.db.test.ts"] } },
       {
         resolve: { alias },
         oxc,

@@ -10,12 +10,19 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-line">
         <div className="mx-auto max-w-6xl px-6 h-14 flex items-center gap-6">
-          <Link href="/" className="font-semibold tracking-tight text-lg">
+          <a href="/" className="flex items-center gap-2 font-semibold tracking-tight text-lg">
+            <img src="/assets/mark.svg" alt="" width={26} height={26} />
             Lodeline
-          </Link>
+          </a>
           <nav className="flex gap-4 text-sm text-muted">
-            <Link href="/audit" className="hover:text-paper">Free parts audit</Link>
-            {!ctx ? <Link href="/suppliers" className="hover:text-paper">Supplier directory</Link> : null}
+            {!ctx ? (
+              <>
+                <Link href="/demo" className="hover:text-paper">Demo</Link>
+                <Link href="/audit" className="hover:text-paper">Free parts audit</Link>
+                <Link href="/suppliers" className="hover:text-paper">Supplier directory</Link>
+                <Link href="/pack" className="hover:text-paper">Evidence pack</Link>
+              </>
+            ) : null}
             {nav.map((n) => (
               <Link key={n.id} href={n.path} className="hover:text-paper">{n.label}</Link>
             ))}
@@ -37,7 +44,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mx-auto max-w-6xl px-6 py-6 space-y-2">
           <Disclaimer />
           <p className="text-xs text-muted">
-            Never upload drawings, controlled technical data or export-controlled (ITAR/CUI) information. Contact: info@lodeline.org
+            Never upload drawings, controlled technical data or export-controlled (ITAR/CUI) information.
+          </p>
+          <p className="text-xs text-muted">
+            <a href="mailto:info@lodeline.org" className="underline">info@lodeline.org</a> · Yash Sharma{" "}
+            <a href="tel:+16023159861" className="underline">(602) 315-9861</a> · <a href="/for-suppliers" className="underline">For suppliers</a> ·{" "}
+            <a href="/privacy" className="underline">Privacy</a>
           </p>
         </div>
       </footer>

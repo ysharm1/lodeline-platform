@@ -1,0 +1,17 @@
+/* Additions to the ported lodeline.org styles for the platform entry points. */
+.nav-links{gap:20px}
+.nav-links a{white-space:nowrap}
+.nav .brand{flex-shrink:0}
+.brand-txt small{white-space:nowrap}
+@media (max-width:1240px){.nav-links a.nav-plat{display:none}}
+.nav-signin{margin:0 16px 0 22px;text-decoration:none;font-size:.93rem;font-weight:500;color:rgba(255,255,255,.88);white-space:nowrap}
+.nav-signin:hover{color:#fff}
+.nav.solid .nav-signin{color:var(--ink2)}
+.nav.solid .nav-signin:hover{color:var(--copper)}
+.hero-links{display:flex;flex-wrap:wrap;gap:8px 22px;margin:4px 0 22px;font-size:.92rem;font-weight:500}
+.hero-links a{color:#fff;text-decoration:none;border-bottom:1px solid rgba(255,255,255,.35);padding-bottom:2px}
+.hero-links a:hover{border-color:var(--copper2);color:var(--copper2)}
+.plat-cta{margin-top:18px}
+.plat-note{margin-top:26px}
+.plat-note a{color:var(--copper)}
+@media (max-width:1040px){.nav-signin{display:none}}
