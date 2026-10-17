@@ -36,7 +36,7 @@ services:
       - key: NODE_VERSION
         value: "22.20.0"
       - key: APP_BASE_URL
-        sync: false
+        value: https://lodeline.org # custom domain; add lodeline.org + www in Render > Settings > Custom Domains
       - key: SESSION_SECRET
         generateValue: true
       - key: SEED_ADMIN_EMAIL
@@ -93,6 +93,11 @@ services:
       # Evidence pack fixed fee in cents (200000-500000). Stripe test keys outside production.
       - key: PACK_PRICE_CENTS
         value: "250000"
+      # Marketing site (lodeline.org): lead + supplier-application notifications, inline booking
+      - key: LEADS_NOTIFY_EMAIL
+        value: info@lodeline.org
+      - key: CALENDLY_URL
+        value: https://calendly.com/lodeline-info/30min
       # Supplier-link token encryption (reminders resend the same link)
       - key: TOKEN_ENCRYPTION_KEY
         generateValue: true

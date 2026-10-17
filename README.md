@@ -1,138 +1,242 @@
-# Lodeline platform
+# Lodeline
 
-Supply-chain evidence for NdFeB/SmCo magnets, tungsten and tantalum (DFARS 252.225-7052).
+**One product for lodeline.org:** the public marketing site, a free parts audit and demo, a paid stage-by-stage evidence pack, a supplier upload portal, an admin review queue, a generated pack PDF, and a searchable supplier directory. It covers NdFeB/SmCo magnets, tungsten and tantalum under DFARS 252.225-7052.
 
-> Lodeline provides supply-chain documentation and analysis, not legal advice or government certification.
+> Lodeline provides supply-chain documentation and analysis, not legal advice or government certification. Applicability, exceptions, and acceptance depend on the contract and the responsible reviewer.
 
-Next.js 15 (App Router, TypeScript) · Prisma 6 · Postgres 16 · Tailwind 4 · Vitest. Hosted on Render Oregon, with S3 `us-west-2`.
-The full plan is in [`docs/plan.md`](docs/plan.md).
+Contact: [info@lodeline.org](mailto:info@lodeline.org) · Yash Sharma, (602) 315-9861
 
-## Setup
+**Stack**
+- Next.js 15 (App Router, TypeScript)
+- Prisma 6 and Postgres 16
+- Tailwind 4 for the app, plus the original lodeline.org CSS for the public pages
+- Vitest
+- `@react-pdf/renderer` and `unpdf`
+- Stripe Checkout
+- Postmark or Resend
+- S3 (us-west-2)
+- Nominatim or Mapbox
+- Leaflet
+
+**Further reading**
+- [`docs/workflow.md`](docs/workflow.md): the product workflow, step by step
+- [`docs/architecture.md`](docs/architecture.md): code layout, data model and security controls
+- [`docs/plan.md`](docs/plan.md): the original build plan
+
+---
+
+## Product overview
+
+| Surface | Path | Who |
+|---|---|---|
+| Marketing site (ported from lodeline.org) | `/`, `/sample-evidence-pack`, `/readiness-checklist`, `/industries/*`, `/privacy` | public |
+| 6-question readiness check (runs in the browser, answers never sent) | `/#check` | public |
+| Readiness-call request and checklist download (stored in Postgres, emailed to the team) | `/#contact`, `/#checklist` | public |
+| Free demo (fictional parts list through the real audit pipeline) | `/demo` | public |
+| Free parts audit (CSV/XLSX upload; results link emailed) | `/audit`, `/audit/[id]?t=…` | public |
+| Evidence pack (Stripe Checkout, $2,000–$5,000 fixed fee, default $2,500) | `/pack`, `/buyer/packs`, `/buyer/packs/[id]` | buyer |
+| Supplier upload portal (tokenized link, no login) | `/s/[token]` | supplier |
+| Admin review queue, packs, directory CRUD, supplier applications, leads, audit log | `/admin/*` | admin |
+| Supplier directory with full-text search and a grounded Ask box | `/suppliers`, `/suppliers/[id]` | public |
+| "For suppliers": application to be listed as a documented source | `/for-suppliers` | public |
+| SEO | `/sitemap.xml`, `/robots.txt`, OG and Twitter metadata, canonical URLs on `APP_BASE_URL` | – |
+
+### Calls to action
+
+| Button | Goes to |
+|---|---|
+| **Try the free demo** | `/demo` |
+| **Search suppliers** | `/suppliers` |
+| **Get the evidence pack** | `/pack` (run the free audit, then **Order an evidence pack** opens Stripe Checkout) |
+| **Sign in** | `/login` (magic link) |
+| **Apply to be listed** | `/for-suppliers` |
+| **Request a readiness call** | `/#contact` (as on the live site) |
+
+## Workflow
+
+```
+directory ─► free audit / demo ─► paid pack (Stripe) ─► supplier uploads (/s/[token])
+   ▲                                                         │
+   │                                                         ▼
+marketplace referral ◄── pack PDF ◄── admin review (accept/reject/edit claims)
+```
+
+1. **Directory.** A buyer searches documented suppliers by material, stage and country, and can ask the directory a question in plain language.
+2. **Free audit or demo.** The buyer uploads a parts list. Each part is classified for covered material, and every required upstream stage shows as "no document yet". The results link is emailed.
+3. **Paid pack.** The buyer orders a pack from the results page and pays through Stripe Checkout. The webhook marks the pack paid, idempotently.
+4. **Supplier uploads.** The buyer adds supplier contacts. Each gets a private 30-day link and reminders on days 3, 7 and 14. Files go straight to S3 through a presigned PUT. Drawings and ITAR/CUI-marked files are rejected.
+5. **Review.** Text is extracted, and claims (issuer, date, stage, facility, address, country) must quote the page verbatim. Facilities are geocoded and covered countries (CN/RU/IR/KP) flagged. An admin accepts, rejects or edits each claim.
+6. **Pack PDF.** Only accepted claims reach the buyer page, the map and the PDF.
+7. **Marketplace referral.** Where a stage has no documented source, Lodeline introduces verified directory suppliers. Today only the schema exists; see *Stubbed*.
+
+Suppliers can also apply at `/for-suppliers`. An approved application becomes an **unpublished, unverified** listing. It is only marked verified when backed by accepted evidence documents.
+
+Details: [`docs/workflow.md`](docs/workflow.md).
+
+## Architecture (short)
+
+```
+app/(site)/        lodeline.org pages: own root layout + original site CSS (no Tailwind)
+app/(platform)/    product pages: own root layout + Tailwind + AppShell (role nav)
+app/_site/         ported markup (generated), client islands, SEO helpers
+app/api/           route handlers (public, buyer, supplier-token, admin, webhooks, cron)
+src/domain         types + error taxonomy
+src/services       business logic (free audit, packs, suppliers, intake, review, directory,
+                   leads, supplier applications, readiness scoring, pack matrix/PDF, …)
+src/infra          llm.ts (only LLM entry point; ZDR guard), email, billing (Stripe/dev), S3, pdf text
+src/http           rate limiter (Postgres), Turnstile, cookies, auth context, error mapping
+src/composition    root.ts: adapter selection + production boot checks
+prisma/            schema + migrations + seed (example-only directory rows)
+vendor/lodeline-site/  snapshot of the live lodeline.org HTML/CSS (source for the port)
+scripts/port-site.py   regenerates app/_site/pages/*.tsx and the site CSS from vendor/
+```
+
+The two route groups have separate root layouts. Navigating between the marketing pages and the app therefore does a full page load, which keeps the two CSS systems isolated. Details: [`docs/architecture.md`](docs/architecture.md).
+
+### The lodeline.org port
+
+The site's source isn't in GitHub, so the live pages were fetched into `vendor/lodeline-site/` on 16 Oct 2026. Images, `mark.svg` and the checklist PDF were fetched into `public/assets/`.
+
+`scripts/port-site.py` converts each page into JSX with the copy and markup verbatim. These sections come across unchanged:
+- hero, services, why-it-matters stats, the rule, engagement steps
+- the sample-pack teaser, industries, readiness check, working-with-us, pilot/ongoing
+- checklist, FAQ, sources and contact
+- the four industry pages, the sample evidence pack, the readiness checklist and privacy
+
+The only edits are explicit patches in the script:
+- platform links in the nav, hero, footer and mobile menu
+- a new "Try the platform" section
+- an updated privacy notice (leads now stored in Postgres; there is no visit beacon)
+
+The interactive parts are React islands:
+- **`ReadinessCheck`**: the scoring is ported 1:1 to `src/services/readiness.ts` and tested. Answers live in component state only.
+- **`LeadForm`** and **`ChecklistForm`**: these POST to `/api/leads`, which applies a honeypot, a Postgres rate limit and Turnstile. The lead is stored in the `Lead` table and the team is notified through the email sender.
+- **`SiteBehaviors`**: the frosted nav, mobile sheet, reveal-on-scroll, sticky "Book" bar and print button.
+
+The original site's third-party lead/visitor endpoints (Cornerstone CRM, Web3Forms, visit beacon) are not ported. To re-sync after the live site changes:
+
+```bash
+curl -s https://lodeline.org/ -o vendor/lodeline-site/index.html   # etc.
+python3 scripts/port-site.py
+```
+
+## Local development
 
 ```bash
 npm ci
-cp .env.example .env        # dev works with no DB: in-memory repo + storage, console email
-npm run dev                 # http://localhost:3000
-npm test                    # unit tests
-npm run build
-```
-
-With Postgres: set `DATABASE_URL`, then `npx prisma migrate deploy` (or `npm run prisma:migrate` while you change the schema).
-
-Admin access: put your email in `SEED_ADMIN_EMAIL`. Your first magic-link sign-in with that address creates an admin. In dev the link is printed to the console.
-
-Running `next start` locally without a DB/S3 needs `ALLOW_DEV_ADAPTERS=true ALLOW_CONSOLE_EMAIL=true` (never set these on Render).
-
-## Layout (pattern copied from LoadEnergy)
-
-```
-src/domain        types + error taxonomy
-src/services      pure-ish services: parts-parser, keyword-classifier, stage-rules,
-                  free-audit, magic-link, audit (append-only log), authorization (ROLE_NAVIGATION)
-src/infra         llm.ts (the only LLM wrapper), email.ts (console/postmark/resend), s3-document-storage.ts
-src/repository    Repository port + in-memory + Prisma adapters
-src/session       hashed-token sessions (in-memory + Prisma)
-src/http          rate limit, Turnstile hook, cookie, auth context, error responses
-src/composition   root.ts: adapter selection + production boot checks
-app/              pages + app/api route handlers
-```
-
-## Setup with Postgres (no Docker needed)
-
-```bash
-npm run db:start            # embedded Postgres 16 on :54329, data in .pgdata/ (prints DATABASE_URL)
+cp .env.example .env
+npm run db:start                       # embedded Postgres 16 on :54329 (data in .pgdata/), prints DATABASE_URL
 export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54329/lodeline
 npx prisma migrate deploy
 SEED_ADMIN_EMAIL=you@example.com npm run seed   # admin + 4 clearly-marked EXAMPLE directory rows
-npm run dev
+npm run dev                            # http://localhost:3000
 ```
 
-Tests: `npm test` runs the `unit` project and the `db` project. The `db` project starts an embedded Postgres (or uses `TEST_DATABASE_URL`), runs `prisma migrate deploy` and exercises the real SQL. CI (`.github/workflows/ci.yml`) uses a `postgres:16` service container.
+**Dev behaviour**
+- **Magic links** and all other email are printed to the console (`EMAIL_PROVIDER=console`).
+- **Billing:** with no `STRIPE_SECRET_KEY`, packs are marked paid immediately (dev billing).
+- **Storage:** with no S3 bucket, uploads go to `.uploads/` through HMAC-signed local URLs.
+- **LLM:** with no key, or `LLM_ZDR_CONFIRMED` not set to true, classification and extraction use the deterministic keyword/label extractors.
 
-## What works
+**Running a production build locally**
 
-### Free audit (Week 1)
-- `/audit` upload, then a file gate (drawings refused), parse, classify (LLM wrapper or keyword fallback), and stage rules. Results are at `/audit/[id]?t=<token>`.
-- **The results link is emailed** to the lead through the `EmailSender` port. The audit log records `audit.results_emailed`, or `audit.results_email_failed` if the send fails (non-fatal).
+```bash
+npm run build
+NODE_ENV=production ALLOW_DEV_ADAPTERS=true ALLOW_CONSOLE_EMAIL=true \
+  APP_BASE_URL=http://localhost:3000 LLM_ZDR_CONFIRMED=true SESSION_SECRET=dev-only npm start
+```
 
-### Evidence pack ($2k–$5k fixed fee)
-- `POST /api/packs` `{auditId, accessToken}`: a signed-in buyer who holds the audit link creates a pack, gets an Organization (created lazily) and is sent to **Stripe Checkout**. The price is `PACK_PRICE_CENTS`, validated to the 200000–500000 range (default $2,500); `STRIPE_PRICE_PACK_STANDARD` can be used instead. With no Stripe key, outside production, packs are marked paid immediately (dev billing).
-- `POST /api/webhooks/stripe`: verifies the raw-body signature, ignores unpaid sessions, and is idempotent per event id (`WebhookEvent`) and per pack.
-- `/buyer/packs/[id]`: shows status per part and stage (documented / covered country / pending review / requested / no document), a Leaflet + OSM map of facilities from accepted evidence, supplier requests with revoke, the add-supplier form and the PDF download.
+Never set `ALLOW_DEV_ADAPTERS` or `ALLOW_CONSOLE_EMAIL` on a real deployment.
 
-### Supplier evidence
-- Buyers add suppliers for selected parts, which creates a `SupplierRequest`:
-  - 256-bit token, looked up by SHA-256 only. It is also stored AES-GCM encrypted (`TOKEN_ENCRYPTION_KEY`), so reminders can resend the same link.
-  - Expires after `SUPPLIER_TOKEN_TTL_DAYS` (30) and can be revoked.
-- Outreach emails go out through Postmark or Resend (console in dev). **Reminders at day 3, 7 and 14** after the initial email come from `GET|POST /api/cron/reminders`, which requires `Authorization: Bearer $CRON_SECRET`. Vercel Cron sends that header automatically; Render runs a `type: cron` service that curls the route. Reminders stop on an upload, a bounce, revocation or expiry.
-- `POST /api/webhooks/email` receives Resend events (Svix signature) or Postmark events (Basic auth with `EMAIL_WEBHOOK_SECRET`). Opens and bounces update the request, and duplicate events are ignored.
-- `/s/[token]` is the supplier portal, with no login. Upload flow:
-  1. The browser asks for a **presigned PUT** (S3 with signed Content-Length and SSE; local-disk HMAC URLs in dev).
-  2. It PUTs the file directly to storage. Bodies never pass through the app server, so the 4.5 MB Vercel limit doesn't apply. The cap is 20 MB.
-  3. It calls `/documents` to process the file.
-- Processing:
-  - Magic-byte check and SHA-256, then per-page text with **unpdf**.
-  - **Drawing rejection**: CAD extensions; title-block heuristics (sparse page plus 3 or more of SCALE / REV / SHEET n OF n / DRAWN BY / CHECKED / TOLERANCES / UNLESS OTHERWISE SPECIFIED / projection…, or 5 or more on any page); ITAR / export-controlled / CUI markings. Image-only PDFs are kept but flagged for manual review (no OCR).
-  - **Claim extraction** (issuer, date, stage, facility, address, country) through `llm.ts` (guarded by ZDR; a deterministic "Label: value" extractor runs without a key). The **verbatim-citation filter** keeps a field only if its quote appears verbatim (whitespace-normalised, case-sensitive) on the cited page and contains the value. Claims with no verified field are dropped.
-  - **Geocoding**: Nominatim by default, with a contactable User-Agent, at most 1 request per second, and a **DB cache that includes misses**. Mapbox is available with `GEOCODER=mapbox`. Latitude, longitude and ISO country are stored.
-  - **Covered countries (CN, RU, IR, KP)** are flagged deterministically when the stated OR geocoded country is covered, and any mismatch is recorded in `coveredReason`.
-- Every claim lands as `in_review`.
+**Tests**
 
-### Admin review
-- `/admin/review`: the queue. `/admin/review/[claimId]`: a side-by-side view of the cited page text with the quotes highlighted, a link to the source PDF page (presigned, 5 min), and accept / reject / edit. Edits re-geocode and re-flag. Every decision is audited. **Only accepted claims ever reach the buyer page, the map or the PDF.**
-- Documents with no extractable claims are listed. Manual claims can be added via `POST /api/admin/documents/[id]/claims`.
+```bash
+npm run typecheck
+npm test            # unit + db projects; db tests start their own embedded Postgres (or TEST_DATABASE_URL)
+npm run build
+```
 
-### Evidence pack PDF
-- `@react-pdf/renderer`, built from the DB only, contains:
-  - the stage table per part
-  - accepted claims with verbatim citations
-  - a facility coordinate table (no tile snapshot in the PDF)
-  - a document register with SHA-256
-  - open questions per gap
-  - stated limits, and the disclaimer on the first and last page and in the footer
-- `GET /api/packs/[id]/pdf` renders it on demand. `POST /api/admin/packs/[id]/generate` stores it in S3 and marks the pack `ready`.
-
-### Supplier directory
-- `/suppliers`: public. Uses Postgres full-text search (`websearch_to_tsquery` with a GIN expression index) plus filters for material, stage, country, excluded country and verified-only. JSON is at `GET /api/suppliers`.
-- **Ask box** (`POST /api/suppliers/ask`, rate limited):
-  - The LLM, or a keyword parser when there is no key, turns the question into structured filters, and the DB query runs.
-  - The answer can only cite the returned rows. Unknown `[n]` refs cause a fallback to a deterministic answer, and the LLM is never called with zero rows.
-- Admin CRUD is at `/admin/suppliers`. **Verification** needs evidence documents with at least one accepted claim, and records the document and claim ids. The seed creates 4 fictional rows marked as examples.
-
-### Platform
-- **Rate limiting in Postgres** (`RateLimitBucket`, one atomic upsert per check, shared across instances) for audits, magic links, supplier uploads and Ask.
-- Magic links carry a validated `next` path, so ordering a pack from the audit page survives login.
+CI (`.github/workflows/ci.yml`) runs typecheck, the tests and the build against a `postgres:16` service container.
 
 ## Deploy
 
-### Render (Oregon), primary
-`render.yaml` sets up:
+The order of preference is Vercel with the `lodeline.org` domain, or Render.
+
+### Vercel (lodeline.org)
+
+1. Import `ysharm1/lodeline-platform` as a new Vercel project (framework: Next.js). `vercel.json` sets:
+   - region `iad1`
+   - `prisma migrate deploy && next build`
+   - a daily cron on `/api/cron/reminders`
+   - 60 s max duration for the processing, PDF and cron routes
+2. Create a US-region Postgres database:
+   - **Neon:** set `DATABASE_URL` to the pooled URL.
+   - **Supabase:** use the session pooler on port 5432 so migrations work.
+3. Set the env vars below, with `APP_BASE_URL=https://lodeline.org`.
+4. **Domain cutover.** lodeline.org is currently served by a different Vercel project (`lodeline.vercel.app`).
+   - In that project, remove `lodeline.org` and `www.lodeline.org` under Settings → Domains.
+   - Add both to this project. Make the apex primary and redirect `www` to it.
+   - DNS stays on Vercel's records (A `76.76.21.21` / CNAME `cname.vercel-dns.com`), so no registrar change is needed if the domain already points at Vercel.
+5. Pages that are pre-rendered at build time (the marketing pages, sitemap and robots) read `APP_BASE_URL`, `TURNSTILE_SITE_KEY` and `CALENDLY_URL` **at build time**. Redeploy after changing them.
+6. Add `https://lodeline.org` to the S3 bucket CORS (PUT/GET).
+7. Stripe:
+   - Add the webhook endpoint `https://lodeline.org/api/webhooks/stripe` for the event `checkout.session.completed`.
+   - Put the signing secret in `STRIPE_WEBHOOK_SECRET`.
+8. Email:
+   - Verify `lodeline.org` in Postmark or Resend (SPF/DKIM).
+   - Point the provider's webhook at `/api/webhooks/email`.
+
+### Render (Oregon)
+
+`render.yaml` defines:
 - the web service, with `preDeployCommand: npx prisma migrate deploy`
 - Postgres `basic-1gb`
-- a daily `type: cron` reminder job
+- a daily cron service that curls `/api/cron/reminders` with the `CRON_SECRET` bearer
 - every secret declared with `sync: false`
 
-### Vercel, alternative
-`vercel.json` sets:
-- region `iad1` (US East)
-- a daily cron on `/api/cron/reminders`; set `CRON_SECRET` and Vercel sends the Bearer header
-- 60 s max duration for the processing, PDF and cron routes
-- `prisma migrate deploy` in the build
+Add `lodeline.org` and `www.lodeline.org` under Custom Domains. `APP_BASE_URL` already defaults to `https://lodeline.org` in the blueprint.
 
-Use a US-region **Neon** or **Supabase** Postgres. For Neon, `DATABASE_URL` is the pooled URL; if you add `directUrl` to the schema, migrations use the direct URL. For Supabase, use the session pooler (port 5432) for migrations. Uploads already bypass the 4.5 MB function body limit through presigned S3 PUTs.
+### S3
 
-### S3 bucket
-- us-west-2, Block Public Access on, SSE-S3.
-- CORS: allow `PUT` and `GET` from `APP_BASE_URL` with the `content-type` and `x-amz-server-side-encryption` headers.
+- Bucket in us-west-2, with Block Public Access and SSE-S3.
+- CORS allows `PUT` and `GET` from `APP_BASE_URL`, with the headers `content-type` and `x-amz-server-side-encryption`.
 
-## Stubbed / not done
+## Environment variables
+
+Production refuses to boot without the **required** variables (`src/composition/root.ts`).
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Postgres |
+| `APP_BASE_URL` | yes | canonical origin: emails, Stripe redirects, sitemap, OG (`https://lodeline.org`) |
+| `SESSION_SECRET` | yes | session/HMAC secret; also the fallback token-encryption key |
+| `LLM_ZDR_CONFIRMED` | yes (`true`) | confirms a zero-data-retention LLM agreement; the wrapper refuses otherwise |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | yes | Checkout and webhook verification |
+| `CRON_SECRET` | yes | bearer for `/api/cron/reminders` |
+| `S3_DOCS_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | yes | document storage (`S3_ENDPOINT` for S3-compatible stores) |
+| `EMAIL_PROVIDER` (`postmark`/`resend`), `POSTMARK_SERVER_TOKEN` or `RESEND_API_KEY`, `EMAIL_FROM` | yes | outbound email |
+| `EMAIL_WEBHOOK_SECRET` | recommended | Resend Svix secret or Postmark basic-auth password |
+| `SEED_ADMIN_EMAIL` | recommended | comma-separated emails that become admins on first sign-in |
+| `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_PROVIDER` | optional | LLM classification, extraction and Ask; keyword fallback without a key |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_REQUIRED` | recommended | bot protection on the audit, lead, application and supplier-upload forms |
+| `TOKEN_ENCRYPTION_KEY` | recommended | encrypts supplier-link tokens at rest |
+| `PACK_PRICE_CENTS` (200000–500000) or `STRIPE_PRICE_PACK_STANDARD` | optional | pack fee (default $2,500) |
+| `GEOCODER` (`nominatim`/`mapbox`/`none`), `GEOCODER_USER_AGENT`, `NOMINATIM_BASE_URL`, `MAPBOX_TOKEN` | optional | facility geocoding |
+| `LEADS_NOTIFY_EMAIL` | optional | where lead and application notifications go (default `info@lodeline.org`) |
+| `CALENDLY_URL` | optional | inline booking in the contact section; an empty string means form only |
+| `RATE_LIMIT_AUDITS_PER_HOUR`, `RATE_LIMIT_LEADS_PER_HOUR` | optional | per-IP limits (defaults 10 and 5) |
+| `SUPPLIER_TOKEN_TTL_DAYS` | optional | supplier link lifetime (default 30) |
+
+## What's stubbed or not done
 
 | Area | State |
 |---|---|
-| OCR for scanned certificates | not built (scans flagged for manual entry) |
-| Background job queue | processing runs inside the upload request (60 s max); move to a worker/queue when volumes grow |
-| Referrals / commission ledger | schema only (`Referral`, `CommissionInvoice`); admin page still a stub |
-| Supplier accounts | suppliers use token links only |
-| Map snapshot image in PDF | coordinate table instead (no tile-server dependency at render time) |
-| Live Postmark/Resend/Stripe/Nominatim calls | adapters implemented and unit-tested with fakes; not exercised against live services from CI |
-
+| Marketplace referrals / commission ledger | schema only (`Referral`, `CommissionInvoice`); `/admin/referrals` is a stub |
+| OCR for scanned certificates | not built; image-only PDFs are flagged for manual claim entry |
+| Background job queue | document processing runs inside the request (60 s max); move to a queue as volume grows |
+| Supplier accounts | suppliers use token links only; `/supplier` is a placeholder |
+| Applicant email on approval or rejection | not sent automatically; admins reply from the queue |
+| Map image in the PDF | coordinate table instead |
+| Calendly "booked" notification | not ported (Calendly emails the booking itself) |
+| Live Stripe/Postmark/Resend/Nominatim/Turnstile | adapters implemented and tested with fakes; not exercised against live services in CI |
+| Privacy notice | updated for the new lead pipeline; **needs owner review before launch** |
