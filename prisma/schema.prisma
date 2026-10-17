@@ -293,6 +293,7 @@ model SupplierListing {
   verifiedFromClaimIds    String[]
   published               Boolean       @default(false)
   referrals               Referral[]
+  application             SupplierApplication?
 }
 
 model Referral {
@@ -355,4 +356,61 @@ model WebhookEvent {
   id         String   @id
   source     String
   receivedAt DateTime @default(now())
+}
+
+/// Marketing-site leads: readiness-call requests and checklist downloads.
+enum LeadKind {
+  readiness_call
+  checklist
+}
+
+model Lead {
+  id         String    @id @default(uuid())
+  kind       LeadKind
+  name       String?
+  company    String
+  email      String
+  phone      String?
+  supplies   String?
+  message    String?
+  sourcePath String?
+  ipHash     String?
+  status     String    @default("new") // new | contacted | closed
+  notifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([createdAt])
+}
+
+enum SupplierApplicationStatus {
+  pending
+  approved
+  rejected
+}
+
+/// "For suppliers" applications to be listed as a documented source.
+/// Approval creates an unpublished, unverified SupplierListing.
+model SupplierApplication {
+  id            String                    @id @default(uuid())
+  status        SupplierApplicationStatus @default(pending)
+  companyName   String
+  contactName   String
+  email         String
+  phone         String?
+  website       String?
+  city          String?
+  countryIso    String?
+  stages        Stage[]
+  materials     Material[]
+  summary       String
+  documentsNote String?
+  ipHash        String?
+  listingId     String?                   @unique
+  listing       SupplierListing?          @relation(fields: [listingId], references: [id])
+  reviewedById  String?
+  reviewedAt    DateTime?
+  reviewNote    String?
+  createdAt     DateTime                  @default(now())
+
+  @@index([status, createdAt])
 }

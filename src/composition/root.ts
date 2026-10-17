@@ -27,6 +27,8 @@ import { SupplierService } from "@/services/suppliers";
 import { EvidenceIntakeService } from "@/services/evidence-intake";
 import { ReviewService } from "@/services/review";
 import { DirectoryService } from "@/services/directory";
+import { LeadService } from "@/services/leads";
+import { SupplierApplicationService } from "@/services/supplier-applications";
 import { geocoderFromEnv } from "@/services/geocoder";
 import { PrismaSessionStore } from "@/session/prisma-store";
 import { InMemorySessionStore, type SessionStore } from "@/session/store";
@@ -38,6 +40,8 @@ export interface Platform {
   intake: EvidenceIntakeService;
   review: ReviewService;
   directory: DirectoryService;
+  leads: LeadService;
+  applications: SupplierApplicationService;
 }
 
 export interface Container {
@@ -51,7 +55,7 @@ export interface Container {
   email: EmailSender;
   baseUrl: string;
   freeAudit: FreeAuditService;
-  limits: Record<"audit" | "magicLink" | "supplierUpload" | "ask", RateLimiter>;
+  limits: Record<"audit" | "magicLink" | "supplierUpload" | "ask" | "lead" | "supplierApply", RateLimiter>;
 }
 
 export function assertProductionConfig(env: NodeJS.ProcessEnv = process.env): void {
@@ -116,7 +120,7 @@ function build(): Container {
       };
       const packs = new PackService(deps);
       const suppliers = new SupplierService(deps, packs);
-      platform = { deps, packs, suppliers, intake: new EvidenceIntakeService(deps, suppliers), review: new ReviewService(deps), directory: new DirectoryService(deps) };
+      platform = { deps, packs, suppliers, intake: new EvidenceIntakeService(deps, suppliers), review: new ReviewService(deps), directory: new DirectoryService(deps), leads: new LeadService(deps), applications: new SupplierApplicationService(deps) };
       return platform;
     },
     email,
@@ -143,6 +147,8 @@ function build(): Container {
       magicLink: limiter(db, "magic-link", 5, 15 * 60_000),
       supplierUpload: limiter(db, "supplier-upload", 30, 3_600_000),
       ask: limiter(db, "ask", 30, 3_600_000),
+      lead: limiter(db, "lead", Number(process.env.RATE_LIMIT_LEADS_PER_HOUR ?? 5), 3_600_000),
+      supplierApply: limiter(db, "supplier-apply", 3, 3_600_000),
     },
   };
 }

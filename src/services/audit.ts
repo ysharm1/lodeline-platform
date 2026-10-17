@@ -34,6 +34,12 @@ export const AUDIT_ACTIONS = [
   "supplier.document_uploaded",
   "claim.reviewed",
   "pack.created",
+  "lead.created",
+  "lead.notify_failed",
+  "lead.status_changed",
+  "supplier_application.submitted",
+  "supplier_application.approved",
+  "supplier_application.rejected",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
