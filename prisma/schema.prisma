@@ -30,6 +30,13 @@ enum Material {
   other
 }
 
+/// Free-audit result category (see src/services/keyword-classifier.ts).
+enum Coverage {
+  likely
+  possible
+  not_likely
+}
+
 enum AuditStatus {
   uploaded
   parsing
@@ -140,7 +147,18 @@ model AuditPart {
   description        String
   supplierName       String?
   quantity           Decimal?
+  /// Raw columns from the uploaded list, kept so the reason can cite them.
+  mpn                String?
+  manufacturer       String?
+  material           String?
+  notes              String?
   materials          Material[]
+  coverage           Coverage   @default(not_likely)
+  /// Human-readable reason citing the matched rule/pattern and column.
+  reason             String     @default("")
+  /// rules | table | llm | default
+  classifiedBy       String     @default("rules")
+  /// Confidence of the final classification (rules or LLM).
   llmConfidence      Float?
   llmRationale       String?
   undocumentedStages Stage[]

@@ -36,7 +36,7 @@ describe("LLM wrapper guard", () => {
     await client.classifyParts(items);
     const logged = JSON.stringify(logs) + JSON.stringify(spies.map((s) => s.mock.calls));
     expect(logged).not.toMatch(/SECRET|bolt|PN-/);
-    expect(logs[0]).toMatchObject({ model: "test-model", promptVersion: "classify-v1", promptTokens: 10, completionTokens: 5 });
+    expect(logs[0]).toMatchObject({ model: "test-model", promptVersion: "classify-v2", promptTokens: 10, completionTokens: 5 });
     spies.forEach((s) => s.mockRestore());
   });
 

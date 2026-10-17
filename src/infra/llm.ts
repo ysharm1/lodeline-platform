@@ -17,8 +17,8 @@
  */
 import { z } from "zod";
 import { DomainError } from "@/domain/errors";
-import { MATERIALS, type Material } from "@/domain/types";
-import { keywordClassify } from "@/services/keyword-classifier";
+import { COVERAGES, MATERIALS, type Coverage, type Material } from "@/domain/types";
+import { classifyPart } from "@/services/keyword-classifier";
 import { mockExtractClaims } from "@/services/claim-mock";
 import { CLAIM_FIELDS, type ProposedClaim } from "@/services/claim-verify";
 import {
@@ -54,7 +54,7 @@ const DIRECTORY_PARSE_PROMPT = `Convert a question about critical-mineral suppli
 {"q": free-text keywords or "", "materials": subset of [ndfeb,smco,tungsten,tantalum], "stages": subset of [mine,separation,metal_alloy,magnet,component], "countries": ISO-3166 alpha-2 codes, "excludeCountries": ISO codes, "verifiedOnly": boolean}. Output only JSON.`;
 const DIRECTORY_ANSWER_PROMPT = `Answer the question using ONLY the provided rows. Refer to rows as [ref]. Do not mention any company not in rows. If rows do not answer it, say so. Output JSON {"answer": string, "citedRefs": [ref numbers used]}.`;
 
-export const PROMPT_VERSION = "classify-v1";
+export const PROMPT_VERSION = "classify-v2";
 
 export class LlmGuardError extends DomainError {
   constructor() {
@@ -88,12 +88,20 @@ export interface ClassifyItem {
   id: string;
   description: string;
   partNumber?: string | null;
+  mpn?: string | null;
+  manufacturer?: string | null;
+  supplierName?: string | null;
+  material?: string | null;
+  notes?: string | null;
+  /** What the deterministic rules concluded, so the model can confirm or refine it. */
+  ruleHint?: string | null;
 }
 export interface ClassifyResult {
   id: string;
   materials: Material[];
   confidence: number;
   rationale: string;
+  coverage?: Coverage;
 }
 export interface ClassifyResponse {
   results: ClassifyResult[];
@@ -124,17 +132,19 @@ const resultSchema = z.object({
       materials: z.array(z.enum(MATERIALS)),
       confidence: z.number().min(0).max(1),
       rationale: z.string().max(300),
+      coverage: z.enum(COVERAGES).optional(),
     })
   ),
 });
 
-const SYSTEM_PROMPT = `You classify industrial/defense parts-list rows by likely critical-mineral content.
-Materials: ndfeb (neodymium-iron-boron magnets: motors, actuators, speakers, servos, sensors, generators),
-smco (samarium-cobalt magnets: high-temp motors, aerospace actuators, traveling-wave tubes),
-tungsten (penetrators, ballast, counterweights, heavy alloy, electrodes, filaments),
-tantalum (tantalum capacitors, superalloys), other (none of the above).
-Return JSON {"results":[{"id","materials":[...],"confidence":0..1,"rationale":"<=25 words"}]}.
-Answer "likely" only; do not invent facts about suppliers.`;
+const SYSTEM_PROMPT = `You review parts-list rows that deterministic rules could not settle, for covered critical-mineral content.
+Materials: ndfeb (neodymium-iron-boron magnets), smco (samarium-cobalt magnets), tungsten (W, heavy alloy),
+tantalum (tantalum capacitors, Ta alloys), other (none of these). Ferrite/ceramic and AlNiCo magnets are NOT covered.
+Each row has: pn (buyer part number), mpn, mfr (manufacturer), sup (supplier), mat (material column), notes, d (description), rule (what the rules found).
+Use the manufacturer and MPN when you recognise the product series; otherwise say so.
+Return JSON {"results":[{"id","coverage":"likely"|"possible"|"not_likely","materials":[...],"confidence":0..1,"rationale":"<=25 words"}]}.
+"likely" only when the row or a series you know states the material; "possible" when it may contain one; "not_likely" otherwise.
+Never invent facts about suppliers.`;
 
 export class LlmClient {
   constructor(
@@ -151,11 +161,24 @@ export class LlmClient {
     return this.config.zdrConfirmed && !!this.config.apiKey;
   }
 
+  /** "blocked": ZDR not confirmed (guard refuses). "no_key": guard passes but there is nothing to call. */
+  availability(): "live" | "no_key" | "blocked" {
+    if (!this.config.zdrConfirmed) return "blocked";
+    return this.config.apiKey ? "live" : "no_key";
+  }
+
+  get modelName(): string {
+    return this.config.model;
+  }
+
   async classifyParts(items: ClassifyItem[]): Promise<ClassifyResponse> {
     this.guard();
     const started = Date.now();
     const mock = (): ClassifyResponse => ({
-      results: items.map((it) => ({ id: it.id, ...keywordClassify(`${it.partNumber ?? ""} ${it.description}`) })),
+      results: items.map((it) => {
+        const c = classifyPart(it);
+        return { id: it.id, materials: c.materials.length ? c.materials : ["other"], confidence: c.confidence, rationale: c.reason, coverage: c.coverage };
+      }),
       model: "keyword-mock",
       promptVersion: PROMPT_VERSION,
       mode: "mock",
@@ -178,7 +201,12 @@ export class LlmClient {
         store: false,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify(items.map((i) => ({ id: i.id, pn: i.partNumber ?? "", d: i.description }))) },
+          {
+            role: "user",
+            content: JSON.stringify(
+              items.map((i) => ({ id: i.id, pn: i.partNumber ?? "", mpn: i.mpn ?? "", mfr: i.manufacturer ?? "", sup: i.supplierName ?? "", mat: i.material ?? "", notes: i.notes ?? "", d: i.description, rule: i.ruleHint ?? "" }))
+            ),
+          },
         ],
       }),
     });

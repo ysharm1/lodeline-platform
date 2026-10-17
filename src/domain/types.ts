@@ -70,7 +70,17 @@ export interface AuditPartRecord {
   description: string;
   supplierName: string | null;
   quantity: number | null;
+  mpn: string | null;
+  manufacturer: string | null;
+  material: string | null;
+  notes: string | null;
+  /** Likely or candidate covered materials (["other"] when none). */
   materials: Material[];
+  coverage: Coverage;
+  /** Human-readable reason citing the matched rule(s) and column(s). */
+  reason: string;
+  /** "rules" | "table" | "llm" | "default" */
+  classifiedBy: string;
   llmConfidence: number | null;
   llmRationale: string | null;
   undocumentedStages: Stage[];
