@@ -41,16 +41,13 @@ Contact: [info@lodeline.org](mailto:info@lodeline.org) · Yash Sharma, (602) 315
 | "For suppliers": application to be listed as a documented source | `/for-suppliers` | public |
 | SEO | `/sitemap.xml`, `/robots.txt`, OG and Twitter metadata, canonical URLs on `APP_BASE_URL` | – |
 
-### Calls to action
+### Marketing site is a 1:1 copy
 
-| Button | Goes to |
-|---|---|
-| **Try the free demo** | `/demo` |
-| **Search suppliers** | `/suppliers` |
-| **Get the evidence pack** | `/pack` (run the free audit, then **Order an evidence pack** opens Stripe Checkout) |
-| **Sign in** | `/login` (magic link) |
-| **Apply to be listed** | `/for-suppliers` |
-| **Request a readiness call** | `/#contact` (as on the live site) |
+The lodeline.org pages are reproduced exactly: same design, layout, copy and link targets. Nothing is added to them and nothing is reworded. A test (`app/_site/site.test.ts`) checks every page's visible text, `href`s and classes against the snapshot in `vendor/lodeline-site/`.
+
+The platform pages (`/demo`, `/pack`, `/suppliers`, `/for-suppliers`, `/audit`, `/login` and the signed-in areas) are **new, separate pages**. They link back to the site (`/`, `/#contact`, `/sample-evidence-pack`, `/privacy`). The marketing pages don't link to them yet.
+
+Adding entry points (for example, pointing an existing CTA at `/demo`) is an owner decision. If approved, make the change as a link-target-only patch in `scripts/port-site.py`.
 
 ## Workflow
 
@@ -97,16 +94,14 @@ The two route groups have separate root layouts. Navigating between the marketin
 
 The site's source isn't in GitHub, so the live pages were fetched into `vendor/lodeline-site/` on 16 Oct 2026. Images, `mark.svg` and the checklist PDF were fetched into `public/assets/`.
 
-`scripts/port-site.py` converts each page into JSX with the copy and markup verbatim. These sections come across unchanged:
-- hero, services, why-it-matters stats, the rule, engagement steps
-- the sample-pack teaser, industries, readiness check, working-with-us, pilot/ongoing
-- checklist, FAQ, sources and contact
-- the four industry pages, the sample evidence pack, the readiness checklist and privacy
+`scripts/port-site.py` converts each page into JSX, keeping the copy, markup, classes and links verbatim. Every page comes across:
+- the home page, section by section
+- the four industry pages
+- the sample evidence pack
+- the readiness checklist
+- privacy
 
-The only edits are explicit patches in the script:
-- platform links in the nav, hero, footer and mobile menu
-- a new "Try the platform" section
-- an updated privacy notice (leads now stored in Postgres; there is no visit beacon)
+There are no copy or layout patches.
 
 The interactive parts are React islands:
 - **`ReadinessCheck`**: the scoring is ported 1:1 to `src/services/readiness.ts` and tested. Answers live in component state only.
@@ -173,7 +168,7 @@ The order of preference is Vercel with the `lodeline.org` domain, or Render.
    - **Neon:** set `DATABASE_URL` to the pooled URL.
    - **Supabase:** use the session pooler on port 5432 so migrations work.
 3. Set the env vars below, with `APP_BASE_URL=https://lodeline.org`.
-4. **Domain cutover.** lodeline.org is currently served by a different Vercel project (`lodeline.vercel.app`).
+4. **Domain cutover (owner action, not done).** lodeline.org is currently served by a different Vercel project (`lodeline.vercel.app`). This repo does not touch that project, its DNS or its deployment. When Yash decides to cut over:
    - In that project, remove `lodeline.org` and `www.lodeline.org` under Settings → Domains.
    - Add both to this project. Make the apex primary and redirect `www` to it.
    - DNS stays on Vercel's records (A `76.76.21.21` / CNAME `cname.vercel-dns.com`), so no registrar change is needed if the domain already points at Vercel.
@@ -239,4 +234,5 @@ Production refuses to boot without the **required** variables (`src/composition/
 | Map image in the PDF | coordinate table instead |
 | Calendly "booked" notification | not ported (Calendly emails the booking itself) |
 | Live Stripe/Postmark/Resend/Nominatim/Turnstile | adapters implemented and tested with fakes; not exercised against live services in CI |
-| Privacy notice | updated for the new lead pipeline; **needs owner review before launch** |
+| Privacy notice | copied verbatim from lodeline.org. It still describes the old pipeline (HighLevel CRM, Web3Forms fallback, text alerts, visit notice). The platform instead stores leads in Postgres, emails the team and has no visit beacon. **Owner decision needed:** update the copy, or restore the old pipeline, before this app serves lodeline.org |
+| Entry links from the marketing pages to the platform | none, by design (1:1 copy); owner decision |

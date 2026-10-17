@@ -16,7 +16,7 @@ The happy path through the product, with the code that implements each step.
   4. sends an email to `LEADS_NOTIFY_EMAIL`
   5. sets `notifiedAt`
 - A failed email never loses the lead. Admins see leads at `/admin/leads` and can mark them contacted or closed.
-- CTAs lead into the product: `/demo`, `/suppliers`, `/pack`, `/login` and `/for-suppliers`.
+- The marketing pages are a 1:1 copy of lodeline.org, so their CTAs keep their original targets (`#contact`, `/sample-evidence-pack`, …). The platform pages (`/demo`, `/suppliers`, `/pack`, `/login`, `/for-suppliers`) are separate pages.
 
 ## 1. Directory
 - `/suppliers` (`DirectoryService.search`) combines Postgres full-text search with material, stage, country, excluded-country and verified-only filters.

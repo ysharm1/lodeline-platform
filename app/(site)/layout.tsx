@@ -1,7 +1,6 @@
 import type { Viewport } from "next";
 import "../_site/site.css";
 import "../_site/pack.css";
-import "../_site/platform.css";
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#0a1220" };
 

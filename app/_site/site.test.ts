@@ -23,10 +23,35 @@ describe("ported lodeline.org pages", () => {
       "not legal advice or government certification",
     ]) expect(home, s).toContain(s);
   });
-  it("wires the platform CTAs", () => {
+  it("is a 1:1 copy: same visible text, links and classes as the live page", () => {
+    const VENDOR = join(__dirname, "..", "..", "vendor", "lodeline-site");
+    const files: Record<string, string> = {
+      home: "index.html", "sample-evidence-pack": "sample-evidence-pack.html", privacy: "privacy.html", "readiness-checklist": "readiness-checklist.html",
+      "industry-aerospace-assemblies": "industries_aerospace-assemblies.html", "industry-motors-actuators": "industries_motors-actuators.html",
+      "industry-power-generation": "industries_power-generation.html", "industry-uas-components": "industries_uas-components.html",
+    };
+    const ent: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', nbsp: " " };
+    const words = (t: string) => t.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) => e.startsWith("#x") || e.startsWith("#X") ? String.fromCodePoint(parseInt(e.slice(2), 16)) : e.startsWith("#") ? String.fromCodePoint(+e.slice(1)) : ent[e] ?? m).match(/[\p{L}\p{N}]+/gu) ?? [];
+    for (const [page, file] of Object.entries(files)) {
+      let html = readFileSync(join(VENDOR, file), "utf8");
+      html = html.slice(html.indexOf("<body"));
+      html = html.replace(/<(script|noscript)[\s\S]*?<\/\1>/g, "");
+      html = html.replace(/<form[^>]*id="(quiz|lead|magnet)"[\s\S]*?<\/form>/g, "").replace(/<!--[\s\S]*?-->/g, "");
+      let tsx = read(page);
+      tsx = tsx.slice(tsx.indexOf("return (") + "return (".length);
+      const vHref = new Set([...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1].replace(/^assets\//, "/assets/").replace(/&amp;/g, "&")));
+      const gHref = new Set([...tsx.matchAll(/href=(?:"([^"]*)"|\{"((?:[^"\\]|\\.)*)"\})/g)].map((m) => m[1] ?? JSON.parse(`"${m[2]}"`)));
+      expect([...gHref].sort(), page).toEqual([...vHref].sort());
+      const vCls = new Set([...html.matchAll(/class="([^"]*)"/g)].map((m) => m[1]));
+      const gCls = new Set([...tsx.matchAll(/className="([^"]*)"/g)].map((m) => m[1]).filter((c) => !c.startsWith("ll-site")));
+      for (const c of gCls) expect(vCls.has(c), `${page}: class ${c}`).toBe(true);
+      const gText = tsx.replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/\{("(?:[^"\\]|\\.)*")\}/g, (_, j) => JSON.parse(j)).replace(/<[^>]+>/g, " ");
+      const vText = html.replace(/<[^>]+>/g, " ");
+      expect(words(gText).join(" "), page).toBe(words(vText).join(" "));
+    }
+  });
+  it("keeps the interactive islands", () => {
     const home = read("home");
-    for (const href of ['href="/demo"', 'href="/suppliers"', 'href="/pack"', 'href="/login"', 'href="/for-suppliers"']) expect(home).toContain(href);
-    expect(home).toContain("Try the free demo");
     expect(home).toContain("<ReadinessCheck />");
     expect(home).toContain("<LeadForm />");
     expect(home).toContain("<ChecklistForm />");
@@ -34,7 +59,8 @@ describe("ported lodeline.org pages", () => {
   it("drops the third-party lead/visitor endpoints", () => {
     for (const f of readdirSync(PAGES)) {
       const src = readFileSync(join(PAGES, f), "utf8");
-      expect(src).not.toMatch(/cornerstone|web3forms|HighLevel|ll_visit_day/i);
+      // The copy (incl. the privacy notice) is verbatim; only the third-party endpoints are gone.
+      expect(src).not.toMatch(/cornerstone-gr0wth|api\.web3forms\.com|sendBeacon/i);
       expect(src).not.toContain("<script");
     }
   });

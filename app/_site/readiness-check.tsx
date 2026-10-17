@@ -80,9 +80,6 @@ export function ReadinessCheck() {
             <p style={{ marginTop: 16 }}>
               <a className="btn" href="#contact">
                 Request a readiness call
-              </a>{" "}
-              <a className="btn btn-glass" href="/demo">
-                Try the free demo
               </a>
             </p>
           </>

@@ -9,13 +9,13 @@
 ## Route groups and layouts
 | Group | Root layout | Styling | Contents |
 |---|---|---|---|
-| `app/(site)` | `app/(site)/layout.tsx` | original lodeline.org CSS (`app/_site/site.css`, `pack.css`) + `platform.css` | `/`, `/sample-evidence-pack`, `/readiness-checklist`, `/privacy`, `/industries/*` |
+| `app/(site)` | `app/(site)/layout.tsx` | original lodeline.org CSS (`app/_site/site.css`, `pack.css`), unmodified | `/`, `/sample-evidence-pack`, `/readiness-checklist`, `/privacy`, `/industries/*` |
 | `app/(platform)` | `app/(platform)/layout.tsx` | Tailwind 4 (`globals.css`) + `AppShell` | `/demo`, `/pack`, `/audit`, `/login`, `/buyer/*`, `/s/[token]`, `/suppliers/*`, `/for-suppliers`, `/admin/*`, `/supplier` |
 | `app/api` | – | – | route handlers |
 
 Each group has its own root layout, so the two CSS systems never load on the same document.
 
-The marketing markup in `app/_site/pages/*.tsx` is **generated** by `scripts/port-site.py` from `vendor/lodeline-site/*.html`. Don't hand-edit it; edit the patches in the script and re-run it. The interactive islands are hand-written React:
+The marketing markup in `app/_site/pages/*.tsx` is **generated** by `scripts/port-site.py` from `vendor/lodeline-site/*.html`. Don't hand-edit it; re-fetch the live HTML into vendor/ and re-run the script (there are no copy or layout patches). The interactive islands are hand-written React:
 - `readiness-check.tsx`
 - `lead-form-client.tsx`
 - `site-behaviors.tsx`
