@@ -42,8 +42,8 @@ src/domain: types + DomainError taxonomy (validation/auth/authorization/not_foun
 ## Data model (Prisma)
 | Area | Models |
 |---|---|
-| Identity | `Organization`, `User` (buyer/supplier/admin), `Session` (hashed token), `MagicLink` |
-| Free audit | `PartsAudit`, `AuditPart` |
+| Identity | `Organization` (`roles: OrgRole[]`, buyer and/or seller), `Membership` (user ↔ org, `roles` per membership, `isOrgAdmin`), `User` (buyer/supplier/admin), `Session` (hashed token), `MagicLink` |
+| Free audit | `PartsAudit`, `AuditPart` (MPN, manufacturer, material, notes, `coverage` likely/possible/not_likely, `reason`, `classifiedBy`) |
 | Packs | `EvidencePack` (pending_payment → collecting → … → ready), `WebhookEvent` (idempotency) |
 | Suppliers and evidence | `Supplier`, `SupplierRequest` (token hash + ciphertext, TTL, reminders), `OutreachEmail`, `EvidenceDocument`, `DocumentPage`, `EvidenceClaim` (verbatim quotes, geocode, covered flag, review status) |
 | Directory | `SupplierListing` (published, verifiedAt, verifiedFromDocumentIds/ClaimIds, GIN FTS index), `SupplierApplication` (pending/approved/rejected → listing) |
@@ -78,3 +78,12 @@ src/domain: types + DomainError taxonomy (validation/auth/authorization/not_foun
   - `unit`: pure logic (parsers, classifiers, readiness scoring, citation filter, countries, webhooks, the site port, SEO).
   - `db`: an embedded Postgres 16 with migrations applied, covering packs, supplier flow, directory FTS, rate limiter, leads and applications.
 - CI uses a `postgres:16` service.
+
+## Dual-role accounts (buyer + seller)
+- An `Organization` can be a buyer, a seller, or both (`roles OrgRole[]`, default `[buyer]`). A user's roles in an org live on their `Membership` (`roles`, `isOrgAdmin`); effective roles are membership roles ∩ org roles (`src/services/memberships.ts`: `effectiveOrgRoles`, `canActAs`).
+- Selling is **not built yet**. Today only the buyer side is used: the first pack creates a `[buyer]` org plus a buyer membership. The migration backfills org roles from the legacy `kind` (supplier → seller) and one membership per existing `User.orgId`.
+- `User.role` / `User.orgId` remain the active context and drive authorization unchanged. When selling ships: add `seller` to the org's roles (`withRole`), gate seller actions with `canActAs("seller", …)`, and add an org switcher that sets the active membership.
+
+## Classifier
+- `src/services/keyword-classifier.ts` (rules-v2) → `src/services/part-patterns.data.ts` (manufacturer + MPN table, source-cited) → LLM only for rows still uncertain. See docs/workflow.md "Classification".
+

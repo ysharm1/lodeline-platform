@@ -59,7 +59,7 @@ marketplace referral ◄── pack PDF ◄── admin review (accept/reject/ed
 ```
 
 1. **Directory.** A buyer searches documented suppliers by material, stage and country, and can ask the directory a question in plain language.
-2. **Free audit or demo.** The buyer uploads a parts list. Each part is classified for covered material, and every required upstream stage shows as "no document yet". The results link is emailed.
+2. **Free audit or demo.** The buyer uploads a parts list. Each part is sorted into likely covered (with material), possible: confirm with supplier, or likely not covered, with a reason citing the rule and column (see docs/workflow.md "Classification"). Every required upstream stage for covered parts shows as "no document yet". The results link is emailed.
 3. **Paid pack.** The buyer orders a pack from the results page and pays through Stripe Checkout. The webhook marks the pack paid, idempotently.
 4. **Supplier uploads.** The buyer adds supplier contacts. Each gets a private 30-day link and reminders on days 3, 7 and 14. Files go straight to S3 through a presigned PUT. Drawings and ITAR/CUI-marked files are rejected.
 5. **Review.** Text is extracted, and claims (issuer, date, stage, facility, address, country) must quote the page verbatim. Facilities are geocoded and covered countries (CN/RU/IR/KP) flagged. An admin accepts, rejects or edits each claim.
@@ -131,7 +131,8 @@ npm run dev                            # http://localhost:3000
 - **Magic links** and all other email are printed to the console (`EMAIL_PROVIDER=console`).
 - **Billing:** with no `STRIPE_SECRET_KEY`, packs are marked paid immediately (dev billing).
 - **Storage:** with no S3 bucket, uploads go to `.uploads/` through HMAC-signed local URLs.
-- **LLM:** with no key, or `LLM_ZDR_CONFIRMED` not set to true, classification and extraction use the deterministic keyword/label extractors.
+- **LLM:** with no key, or `LLM_ZDR_CONFIRMED` not set to true, classification and extraction use the deterministic rules/label extractors. With a key, only parts still uncertain after rules-v2 go to the LLM.
+- **Accounts:** organizations are dual-role ready (`Organization.roles`, per-user `Membership.roles`); only the buyer side is built. See docs/architecture.md.
 
 **Running a production build locally**
 

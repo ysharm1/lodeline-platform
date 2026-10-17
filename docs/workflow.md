@@ -34,13 +34,22 @@ The happy path through the product, with the code that implements each step.
   3. a 5 MB cap
   4. a drawing/CAD/PDF/image refusal
   5. CSV/XLSX parsing
-  6. LLM or keyword classification
-  7. stage rules
+  6. classification (rules-v2, see "Classification" below)
+  7. stage rules (only for parts with a known covered material)
+
+### Classification (rules-v2)
+- **Columns.** The parser keeps Part Number, MPN, Description, Manufacturer, Supplier, Material and Notes/Comments (broad header synonyms: `MFR`, `Mfg P/N`, `Vendor`, `Material Spec`, `Remarks`, …). All of them go to the classifier.
+- **Categories.** Every part gets exactly one, with a reason that cites the rule or pattern id and the column it matched (e.g. `[ndfeb.grade, Description]`):
+  - **Likely covered**: a named material (NdFeB grade/`neo`/`rare earth`, SmCo/`2:17`/`1:5`/`samarium`, tungsten/`W` in the Material column/heavy alloy/`W-Ni-Fe`/densimet, tantalum/`TANT`/`Ta`) or a verified manufacturer+MPN pattern.
+  - **Possible: confirm with supplier**: weaker signals (`balance/ballast/counter weight`, `molded polarized` capacitor, BLDC/servo), conflicting signals (e.g. NdFeB and ferrite in one row), a bare `motor/magnet/speaker/actuator` (needs check, no material assumed), or an empty description.
+  - **Likely not covered**: a negative rule (ferrite, ceramic magnet, C5/C8, AlNiCo, ceramic/aluminium-electrolytic capacitor, ferrite brushed motor) with no conflicting signal, or no signal at all. The reason always says which; ambiguous rows are never silently cleared.
+- **Pattern table.** `src/services/part-patterns.data.ts` holds manufacturer + MPN patterns. Each entry carries source URLs and the date it was checked; only add patterns verified on a manufacturer or major distributor page.
+- **LLM.** Only rows still uncertain after rules (no signal) go to the LLM, in batches of 50, with PN, MPN, manufacturer, supplier, material, notes, description and the rule hint, behind the `llm.ts` ZDR guard. With no key the LLM step is skipped (`llmModel = keyword-mock`). The LLM can upgrade a row but never clears one the rules marked possible.
 - The results link is then emailed to the lead.
 
 ## 3. Paid evidence pack
 - On the results page, **Order an evidence pack** sends `POST /api/packs` (sign-in required). The magic link keeps the `next` path so the order survives sign-in.
-- `PackService.create` creates the `EvidencePack` and the buyer's `Organization`, then opens a Stripe Checkout session.
+- `PackService.create` creates the `EvidencePack` and the buyer's `Organization` (roles `[buyer]`) with a buyer `Membership` (org admin), then opens a Stripe Checkout session.
 - `POST /api/webhooks/stripe` verifies the signature and calls `markPaid`, which is idempotent per event and per pack. The pack moves to `collecting`.
 - Without Stripe in dev, `DevBilling` marks the pack paid at once.
 
