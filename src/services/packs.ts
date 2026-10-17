@@ -16,8 +16,10 @@ export class PackService {
   /** Ensures the buyer has an Organization (created lazily on first pack). */
   private async orgFor(ctx: AuthContext, companyName: string | null): Promise<string> {
     if (ctx.orgId) return ctx.orgId;
-    const org = await this.d.db.organization.create({ data: { name: companyName ?? ctx.email.split("@")[1], kind: "buyer" } });
+    const org = await this.d.db.organization.create({ data: { name: companyName ?? ctx.email.split("@")[1], kind: "buyer", roles: ["buyer"] } });
     await this.d.db.user.update({ where: { id: ctx.userId }, data: { orgId: org.id } });
+    // Dual-role ready: the creator is a buyer member and org admin; a seller role can be added later.
+    await this.d.db.membership.create({ data: { userId: ctx.userId, orgId: org.id, roles: ["buyer"], isOrgAdmin: true } });
     return org.id;
   }
 

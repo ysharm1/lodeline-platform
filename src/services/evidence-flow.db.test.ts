@@ -168,6 +168,19 @@ describe("evidence pack flow (Postgres)", () => {
     await expect(handleEmailWebhook(s.deps, new Headers(), body, secret)).rejects.toMatchObject({ code: "WEBHOOK_SIGNATURE_INVALID" });
   });
 
+  it("first pack creates a dual-role-ready organization and a buyer membership", async () => {
+    const s = await setup();
+    await s.packs.create(s.buyer, { auditId: s.auditId, accessToken: s.accessToken });
+    const user = await db.user.findUniqueOrThrow({ where: { id: s.buyer.userId } });
+    const org = await db.organization.findUniqueOrThrow({ where: { id: user.orgId! } });
+    expect(org.roles).toEqual(["buyer"]);
+    const m = await db.membership.findUniqueOrThrow({ where: { userId_orgId: { userId: user.id, orgId: org.id } } });
+    expect(m).toMatchObject({ roles: ["buyer"], isOrgAdmin: true });
+    // An organization can hold both roles (selling not built yet).
+    const both = await db.organization.update({ where: { id: org.id }, data: { roles: { set: ["buyer", "seller"] } } });
+    expect(both.roles).toEqual(["buyer", "seller"]);
+  });
+
   it("suppliers cannot be contacted before payment; drawings uploaded as PDF are rejected after upload", async () => {
     const s = await setup();
     const billing = { mode: "stripe" as const, createCheckout: async () => ({ id: "cs_1", url: "https://checkout.test" }), parseWebhook: async () => ({ id: "x", type: "ignored" as const }) };

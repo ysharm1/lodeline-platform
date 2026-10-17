@@ -14,6 +14,13 @@ enum Role {
   admin
 }
 
+/// What an organization (or a member acting for it) can do on Lodeline.
+/// An organization can be both a buyer and a seller; selling is not built yet.
+enum OrgRole {
+  buyer
+  seller
+}
+
 enum Stage {
   mine
   separation
@@ -72,12 +79,16 @@ enum OutreachStatus {
 }
 
 model Organization {
-  id        String            @id @default(uuid())
-  name      String
-  kind      String // buyer | supplier | operator
-  country   String?
-  createdAt DateTime          @default(now())
-  users     User[]
+  id          String            @id @default(uuid())
+  name        String
+  /// Legacy single-role label (buyer | supplier | operator). Use `roles` for new code.
+  kind        String
+  /// Capabilities of the organization; can hold both buyer and seller.
+  roles       OrgRole[]         @default([buyer])
+  country     String?
+  createdAt   DateTime          @default(now())
+  users       User[]
+  memberships Membership[]
   audits    PartsAudit[]
   listings  SupplierListing[]
   packs     EvidencePack[]
@@ -93,6 +104,25 @@ model User {
   emailVerifiedAt DateTime?
   createdAt       DateTime      @default(now())
   sessions        Session[]
+  memberships     Membership[]
+}
+
+/// A user's membership in an organization, with the roles they hold there.
+/// Effective roles = membership.roles ∩ organization.roles (src/services/memberships.ts).
+/// User.orgId / User.role remain the active context until multi-org switching ships.
+model Membership {
+  id         String       @id @default(uuid())
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  roles      OrgRole[]    @default([buyer])
+  /// Can manage members and org settings.
+  isOrgAdmin Boolean      @default(false)
+  createdAt  DateTime     @default(now())
+
+  @@unique([userId, orgId])
+  @@index([orgId])
 }
 
 /// Copied from LoadEnergy: only the SHA-256 of the token is stored.

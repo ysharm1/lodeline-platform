@@ -3,6 +3,23 @@
 export const ROLES = ["buyer", "supplier", "admin"] as const;
 export type Role = (typeof ROLES)[number];
 
+/**
+ * Per-organization capabilities. An Organization can be a buyer AND a seller;
+ * a user's roles in an org live on their Membership. (Platform-wide `Role`
+ * above stays as the active-context role until multi-org switching ships.)
+ */
+export const ORG_ROLES = ["buyer", "seller"] as const;
+export type OrgRole = (typeof ORG_ROLES)[number];
+
+export interface MembershipRecord {
+  id: string;
+  userId: string;
+  orgId: string;
+  roles: OrgRole[];
+  isOrgAdmin: boolean;
+  createdAt: Date;
+}
+
 export const STAGES = ["mine", "separation", "metal_alloy", "magnet", "component"] as const;
 export type Stage = (typeof STAGES)[number];
 
