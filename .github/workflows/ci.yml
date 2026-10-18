@@ -30,3 +30,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: PGPASSWORD=postgres psql -h localhost -U postgres -c 'CREATE DATABASE lodeline_e2e_test'
+      - name: e2e (all 8 steps, offline; email to a file outbox, fake Stripe API)
+        run: npm run e2e
+        env:
+          E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lodeline_e2e_test

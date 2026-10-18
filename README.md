@@ -147,7 +147,8 @@ npm run dev                            # http://localhost:3000
 - **Billing:** with no `STRIPE_SECRET_KEY`, packs are marked paid immediately (dev billing).
 - **Storage:** with no S3 bucket, uploads go to `.uploads/` through HMAC-signed local URLs.
 - **LLM:** with no key, or `LLM_ZDR_CONFIRMED` not set to true, classification and extraction use the deterministic rules/label extractors. With a key, only parts still uncertain after rules-v2 go to the LLM.
-- **Accounts:** organizations are dual-role ready (`Organization.roles`, per-user `Membership.roles`); only the buyer side is built. See docs/architecture.md.
+- **Accounts:** organizations are dual-role (`Organization.roles`, per-user `Membership.roles`). A buyer org gains the `seller` role when it lists its own supplies at `/buyer/listings`. See docs/architecture.md.
+- **Offline extras for local runs:** `EMAIL_PROVIDER=file` appends every email to `EMAIL_OUTBOX_FILE` (JSONL, default `.outbox/emails.jsonl`). `STRIPE_API_BASE=http://127.0.0.1:<port>` points the real Stripe SDK at a local stand-in. `GEOCODER=country` resolves to country centroids with no network. All three are refused when `NODE_ENV=production`.
 
 **Running a production build locally**
 
@@ -167,7 +168,27 @@ npm test            # unit + db projects; db tests start their own embedded Post
 npm run build
 ```
 
-CI (`.github/workflows/ci.yml`) runs typecheck, the tests and the build against a `postgres:16` service container.
+**End-to-end run**
+
+```bash
+npm run e2e         # needs nothing running: starts a temp embedded Postgres, a fake Stripe API and `next dev`
+```
+
+`e2e/run.mts` drives all 8 steps over HTTP using the public catalogue BOM in `e2e/fixtures/` and synthetic PDFs labelled "SYNTHETIC TEST DOCUMENT":
+1. free audit (CSV and XLSX, checked against the answer key)
+2. sign-up
+3. Custom quote and Stripe checkout with a signed webhook
+4. supplier emails, per-stage upload and forwarding
+5. extraction without an LLM, covered-country flags and confidence
+6. review and release
+7. full and per-part PDFs
+8. matchmaker, map, China-free filter and buyer listings
+
+Email goes to a file outbox (every recipient is `*.test`), so nothing is sent. Options:
+- `E2E_DATABASE_URL` uses an existing database whose name contains `e2e` or `test`. It is migrated and **truncated**.
+- `E2E_KEEP=1` keeps the server log, outbox and PDFs.
+
+CI (`.github/workflows/ci.yml`) runs typecheck, the tests, the build and `npm run e2e` against a `postgres:16` service container.
 
 ## Deploy
 
@@ -231,7 +252,7 @@ Production refuses to boot without the **required** variables (`src/composition/
 | `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_PROVIDER` | optional | LLM classification, extraction and Ask; keyword fallback without a key |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_REQUIRED` | recommended | bot protection on the audit, lead, application and supplier-upload forms |
 | `TOKEN_ENCRYPTION_KEY` | recommended | encrypts supplier-link tokens at rest |
-| `GEOCODER` (`nominatim`/`mapbox`/`none`), `GEOCODER_USER_AGENT`, `NOMINATIM_BASE_URL`, `MAPBOX_TOKEN` | optional | facility geocoding |
+| `GEOCODER` (`nominatim`/`mapbox`/`country`/`none`), `GEOCODER_USER_AGENT`, `NOMINATIM_BASE_URL`, `MAPBOX_TOKEN` | optional | facility geocoding |
 | `LEADS_NOTIFY_EMAIL` | optional | where lead and application notifications go (default `info@lodeline.org`) |
 | `CALENDLY_URL` | optional | inline booking in the contact section; an empty string means form only |
 | `RATE_LIMIT_AUDITS_PER_HOUR`, `RATE_LIMIT_LEADS_PER_HOUR` | optional | per-IP limits (defaults 10 and 5) |
@@ -250,6 +271,6 @@ Production refuses to boot without the **required** variables (`src/composition/
 | Applicant email on approval or rejection | not sent automatically; admins reply from the queue |
 | Map image in the PDF | coordinate table instead |
 | Calendly "booked" notification | not ported (Calendly emails the booking itself) |
-| Live Stripe/Postmark/Resend/Nominatim/Turnstile | adapters implemented and tested with fakes; not exercised against live services in CI |
+| Live Stripe/Postmark/Resend/Nominatim/Turnstile | adapters implemented and tested with fakes (the e2e run uses the real Stripe SDK against a local stand-in); not exercised against live services |
 | Privacy notice | copied verbatim from lodeline.org. It still describes the old pipeline (HighLevel CRM, Web3Forms fallback, text alerts, visit notice). The platform instead stores leads in Postgres, emails the team and has no visit beacon. **Owner decision needed:** update the copy, or restore the old pipeline, before this app serves lodeline.org |
 | Entry links from the marketing pages to the platform | none, by design (1:1 copy); owner decision |

@@ -15,7 +15,8 @@
     "db:start": "node scripts/dev-db.mjs",
     "test:unit": "vitest run --project unit",
     "test:db": "vitest run --project db",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "e2e": "tsx e2e/run.mts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1149.0",

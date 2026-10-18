@@ -51,6 +51,7 @@ The happy path through the product, with the code that implements each step.
 - On the results page, **Order an evidence pack** sends `POST /api/packs` (sign-in required). The magic link keeps the `next` path so the order survives sign-in.
 - The results page shows the buyer's **tier and price** before they order (`src/services/pricing.ts`): it counts the flagged parts (likely + possible) and the distinct named suppliers behind them. Up to 5 parts and 3 suppliers is **Starter** ($2,500); up to 15 parts and 8 suppliers is **Standard** ($5,000); anything larger shows **Request a quote** instead of the order button.
 - `PackService.create` picks the tier, creates the `EvidencePack` (with `tier` and `priceCents`) and the buyer's `Organization` (roles `[buyer]`) with a buyer `Membership` (org admin), then opens a Stripe Checkout session. A scope larger than Standard is refused with `QUOTE_REQUIRED` and logged as `pack.quote_required`.
+- **Custom quotes.** Larger audits appear at `/admin/quotes`. An admin sets a price (at least $5,000) and an optional supplier limit (`POST /api/admin/audits/[auditId]/quote`, audited as `pack.quoted`). The results page then shows **Order the Custom pack ($X)**, and checkout uses the quoted price. The quoted supplier limit applies to the pack.
 - `POST /api/webhooks/stripe` verifies the signature and calls `markPaid`, which is idempotent per event and per pack. The pack moves to `collecting`.
 - Without Stripe in dev, `DevBilling` marks the pack paid at once.
 
@@ -71,12 +72,19 @@ The happy path through the product, with the code that implements each step.
   4. claim extraction with the verbatim-citation filter
   5. geocoding (cached) and the covered-country flag
 - Claims land as `in_review`.
+- **Without an LLM** (no key, or `LLM_ZDR_CONFIRMED` not `true`), extraction falls back to the deterministic label extractor (`model: deterministic-fallback`). The verbatim-quote filter still applies.
+- **Confidence.** Each claim gets a 0–1 score (`src/services/claim-confidence.ts`) based on which fields were quoted, any fields dropped by the quote filter, and whether the stated country matches the geocoded one. The review queue shows it.
+- **Per-stage forms.** The portal lists one upload form for each requested stage (the stage is stored as `EvidenceDocument.declaredStage` and validated against the request). There is also one form for a document that covers several stages.
+- **Forwarding up the chain.** For any stage, a supplier can forward the request to its own supplier (`POST /api/s/[token]/forward`). That creates a child `SupplierRequest` (`parentRequestId`) for the same pack and parts, with its own link and email. Depth is capped at 4 and forwards at 10 per request. Forwards don't count against the tier's supplier limit.
+- **Unknown material.** A "possible" part with no detected material is requested for the magnet chain (`stagesForPart`), so the supplier can confirm it.
 
 ## 5. Review
 - Admins work from `/admin/review` and `/admin/review/[claimId]`. The cited page text is shown with quotes highlighted, and the source PDF opens via a 5-minute presigned link. The admin accepts, rejects or edits the claim; edits re-geocode and re-flag.
 - Every decision is written to the append-only audit log (`/admin/audit-log`).
 
 ## 6. Pack PDF
+- **One-click release.** `/admin/packs` → **Release** (`POST /api/admin/packs/[packId]/release`). This works only for a paid pack with no claim still `in_review`. It renders and stores the PDF, marks the pack `delivered` (`releasedAt`), emails the buyer and audits `pack.released`.
+- **Per-part PDF.** `GET /api/packs/[packId]/pdf?part=<partId>` gives the same pack narrowed to one part. The buyer page links one for each part.
 - `buildPackMatrix` uses accepted claims only.
 - `GET /api/packs/[id]/pdf` renders the PDF on demand. `POST /api/admin/packs/[id]/generate` stores it and marks the pack `ready`.
 - The PDF contains the stage table, verbatim citations, facility coordinates, a document register with SHA-256 hashes, open questions, stated limits and the disclaimer.
@@ -88,6 +96,10 @@ The happy path through the product, with the code that implements each step.
 - `customer.subscription.deleted` marks the plan cancelled. A cancelled plan can be restarted.
 
 ## 8. Sourcing (not a flow yet)
+- **Matchmaker** (`src/services/matchmaker.ts`, no LLM). For every stage that has no document yet, or that is documented in a covered country, the buyer's pack page (and `GET /api/packs/[packId]/matches`) suggests published directory suppliers that match the material and stage. Covered countries are excluded; verified listings rank first. The audit results page shows the same suggestions for each flagged part.
+- **Directory map and China-free filter.** `/suppliers` shows listings on a map (directory coordinates come from geocoding with a country-centroid fallback). `excludeCovered=1` hides CN/RU/IR/KP.
+- **Buyers list their own supplies** at `/buyer/listings` (`POST /api/listings/mine`). The org gains the `seller` role, and the listing starts unpublished and unverified until an admin reviews it (`/admin/suppliers`, marked "submitted by account").
+
 - Where a pack shows a stage with no documented source, Lodeline can introduce verified directory suppliers for a flat fee paid by the buyer, quoted by email.
 - Supplier-paid commissions are **off** (`SUPPLIER_COMMISSIONS_ENABLED=false` in `src/services/pricing.ts`) until a government contracts lawyer has reviewed them. `/admin/referrals` explains why. The `Referral` and `CommissionInvoice` tables stay unused.
 
