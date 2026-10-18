@@ -17,6 +17,14 @@ export const HTTP_STATUS_BY_CATEGORY = {
 
 export type ErrorCategory = keyof typeof HTTP_STATUS_BY_CATEGORY;
 
+/**
+ * Cross-bundle brand. The container is cached on globalThis, so an error can be
+ * thrown by a service loaded through one route bundle and caught in another
+ * (each Next dev route bundle has its own copy of this class). `instanceof`
+ * then fails and a 4xx became a 500. Symbol.for is shared process-wide.
+ */
+const DOMAIN_ERROR_BRAND = Symbol.for("lodeline.DomainError");
+
 export class DomainError extends Error {
   constructor(
     readonly category: ErrorCategory,
@@ -26,6 +34,7 @@ export class DomainError extends Error {
   ) {
     super(message);
     this.name = "DomainError";
+    Object.defineProperty(this, DOMAIN_ERROR_BRAND, { value: true });
   }
   get httpStatus(): number {
     return HTTP_STATUS_BY_CATEGORY[this.category];
@@ -54,7 +63,7 @@ export class NotFoundError extends DomainError {
 }
 
 export function isDomainError(e: unknown): e is DomainError {
-  return e instanceof DomainError;
+  return e instanceof DomainError || (typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[DOMAIN_ERROR_BRAND] === true);
 }
 
 export class ConflictError extends DomainError {

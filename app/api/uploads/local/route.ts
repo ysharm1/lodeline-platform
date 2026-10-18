@@ -5,10 +5,13 @@ import { LocalDiskStorage } from "@/services/storage";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** DEV ONLY: target of LocalDiskStorage presigned URLs. Disabled when S3 is configured. */
-function local() {
+/**
+ * DEV ONLY: target of LocalDiskStorage presigned URLs. Disabled when S3 is configured.
+ * Checked by name, not instanceof: the cached container may come from another route bundle.
+ */
+function local(): LocalDiskStorage | null {
   const s = container().storage;
-  return s instanceof LocalDiskStorage ? s : null;
+  return s.name === "local" ? (s as LocalDiskStorage) : null;
 }
 
 export async function PUT(req: Request) {
