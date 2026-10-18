@@ -16,6 +16,7 @@ export const ROLE_NAVIGATION: Record<Role, readonly NavigationItem[]> = {
     { id: "audits", label: "Parts audits", path: "/audit" },
     { id: "packs", label: "Evidence packs", path: "/buyer/packs" },
     { id: "directory", label: "Supplier directory", path: "/suppliers" },
+    { id: "listings", label: "My listings", path: "/buyer/listings" },
   ],
   supplier: [
     // Suppliers mainly act through tokenized links (/s/[token]); an account
@@ -25,6 +26,7 @@ export const ROLE_NAVIGATION: Record<Role, readonly NavigationItem[]> = {
   admin: [
     { id: "review", label: "Review queue", path: "/admin/review" },
     { id: "packs", label: "Packs", path: "/admin/packs" },
+    { id: "quotes", label: "Quotes", path: "/admin/quotes" },
     { id: "suppliers", label: "Suppliers", path: "/admin/suppliers" },
     { id: "applications", label: "Applications", path: "/admin/applications" },
     { id: "verifications", label: "Verifications", path: "/admin/verifications" },

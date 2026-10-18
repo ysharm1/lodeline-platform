@@ -36,3 +36,22 @@ export async function loadPackPdfData(packs: PackService, packId: string, now = 
     })),
   };
 }
+
+/**
+ * Narrow a pack PDF to one part: its matrix row, the accepted claims behind its
+ * cells and the documents those claims cite. Null when the part is not in the pack.
+ */
+export function packPdfDataForPart(data: PackPdfData, partId: string): PackPdfData | null {
+  const row = data.matrix.find((r) => r.part.id === partId);
+  if (!row) return null;
+  const claimIds = new Set(row.cells.flatMap((c) => c.claimIds));
+  const claims = data.claims.filter((c) => claimIds.has(c.id));
+  const docIds = new Set(claims.map((c) => c.documentId));
+  return {
+    ...data,
+    matrix: [row],
+    claims,
+    documents: data.documents.filter((d) => docIds.has(d.id)),
+    partLabel: `${row.part.partNumber ?? "-"} ${row.part.description}`.trim(),
+  };
+}

@@ -54,6 +54,11 @@ export const AUDIT_ACTIONS = [
   "refresh.activated",
   "refresh.completed",
   "refresh.cancelled",
+  // End-to-end flow (docs/workflow.md)
+  "pack.quoted",
+  "pack.released",
+  "supplier.request_forwarded",
+  "listing.submitted_by_org",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

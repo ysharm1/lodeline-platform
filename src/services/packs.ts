@@ -10,6 +10,8 @@ import type { Prisma } from "@prisma/client";
 import { AuthorizationError, ConflictError, NotFoundError, ValidationError } from "@/domain/errors";
 import type { AuthContext, Material, Stage } from "@/domain/types";
 import { packTier, scopeOfParts, tierForScope, usd } from "./pricing";
+import { requireAdmin } from "./authorization";
+import { ensureOrg } from "./orgs";
 import { hashSessionToken } from "@/session/store";
 import { buildPackMatrix, type MatrixClaim } from "./pack-matrix";
 import { nowOf, type PlatformDeps } from "./deps";
@@ -19,12 +21,7 @@ export class PackService {
 
   /** Ensures the buyer has an Organization (created lazily on first pack). */
   private async orgFor(ctx: AuthContext, companyName: string | null): Promise<string> {
-    if (ctx.orgId) return ctx.orgId;
-    const org = await this.d.db.organization.create({ data: { name: companyName ?? ctx.email.split("@")[1], kind: "buyer", roles: ["buyer"] } });
-    await this.d.db.user.update({ where: { id: ctx.userId }, data: { orgId: org.id } });
-    // Dual-role ready: the creator is a buyer member and org admin; a seller role can be added later.
-    await this.d.db.membership.create({ data: { userId: ctx.userId, orgId: org.id, roles: ["buyer"], isOrgAdmin: true } });
-    return org.id;
+    return ensureOrg(this.d, ctx, companyName, ["buyer"]);
   }
 
   async create(ctx: AuthContext, input: { auditId: unknown; accessToken: unknown }) {
@@ -35,8 +32,10 @@ export class PackService {
     if (audit.status !== "classified") throw new ConflictError("AUDIT_NOT_READY", "The audit has not finished.");
 
     // Pick the smallest tier that fits the parts and suppliers in this audit.
+    // A scope larger than Standard is Custom: sold at the fixed price staff quoted for this audit.
     const tier = tierForScope(scopeOfParts(audit.parts));
-    if (tier.priceCents === null && !audit.pack) {
+    const priceCents = tier.priceCents ?? audit.quotedPriceCents ?? null;
+    if (priceCents === null && !audit.pack) {
       await this.d.audit.append({ action: "pack.quote_required", actorUserId: ctx.userId, subjectId: audit.id, payload: scopeOfParts(audit.parts) });
       throw new ConflictError(
         "QUOTE_REQUIRED",
@@ -49,11 +48,53 @@ export class PackService {
     if (existing && existing.orgId !== orgId) throw new ConflictError("PACK_EXISTS", "A pack already exists for this audit.");
     const pack =
       existing ??
-      (await this.d.db.evidencePack.create({ data: { auditId: audit.id, orgId, tier: tier.id, priceCents: tier.priceCents!, status: "pending_payment", createdById: ctx.userId } }));
+      (await this.d.db.evidencePack.create({ data: { auditId: audit.id, orgId, tier: tier.id, priceCents: priceCents!, status: "pending_payment", createdById: ctx.userId } }));
     if (!audit.orgId) await this.d.db.partsAudit.update({ where: { id: audit.id }, data: { orgId } });
     if (pack.paidAt) return { packId: pack.id, checkoutUrl: `${this.d.baseUrl}/buyer/packs/${pack.id}` };
 
     return this.startCheckout(ctx, pack);
+  }
+
+  /**
+   * Staff set a fixed Custom-tier quote for an audit larger than Standard.
+   * The buyer can then order the pack from the results page at that price.
+   */
+  async setQuote(ctx: AuthContext, auditId: string, input: { priceCents?: unknown; maxSuppliers?: unknown }) {
+    const admin = requireAdmin(ctx);
+    const audit = await this.d.db.partsAudit.findUnique({ where: { id: auditId }, include: { pack: true, parts: { select: { coverage: true, supplierName: true } } } });
+    if (!audit) throw new NotFoundError("AUDIT_NOT_FOUND", "Audit not found.");
+    if (audit.pack) throw new ConflictError("PACK_EXISTS", "A pack was already ordered for this audit.");
+    const scope = scopeOfParts(audit.parts);
+    if (tierForScope(scope).id !== "custom") throw new ConflictError("QUOTE_NOT_NEEDED", "This audit fits a standard tier; no quote is needed.");
+    const priceCents = Number(input.priceCents);
+    if (!Number.isInteger(priceCents) || priceCents < 500_000 || priceCents > 100_000_000) throw new ValidationError("PRICE_INVALID", "Quote must be a whole number of cents, at least the Standard price.", "priceCents");
+    const maxSuppliers = input.maxSuppliers === undefined || input.maxSuppliers === null || input.maxSuppliers === "" ? Math.max(scope.suppliers, 1) : Number(input.maxSuppliers);
+    if (!Number.isInteger(maxSuppliers) || maxSuppliers < 1 || maxSuppliers > 500) throw new ValidationError("MAX_SUPPLIERS_INVALID", "Supplier limit must be 1 to 500.", "maxSuppliers");
+    const row = await this.d.db.partsAudit.update({ where: { id: auditId }, data: { quotedPriceCents: priceCents, quotedMaxSuppliers: maxSuppliers, quotedAt: nowOf(this.d), quotedById: admin.userId } });
+    await this.d.audit.append({ action: "pack.quoted", actorUserId: admin.userId, subjectId: auditId, payload: { priceCents, maxSuppliers, ...scope } });
+    return { auditId: row.id, quotedPriceCents: priceCents, quotedMaxSuppliers: maxSuppliers };
+  }
+
+  /** Audits too large for Standard with no pack yet: the staff quote queue. */
+  async quoteQueue(ctx: AuthContext) {
+    requireAdmin(ctx);
+    const audits = await this.d.db.partsAudit.findMany({
+      where: { status: "classified", pack: null },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      include: { parts: { select: { coverage: true, supplierName: true } } },
+    });
+    return audits
+      .map((a) => ({ id: a.id, leadEmail: a.leadEmail, companyName: a.companyName, sourceFileName: a.sourceFileName, createdAt: a.createdAt, quotedPriceCents: a.quotedPriceCents, quotedMaxSuppliers: a.quotedMaxSuppliers, scope: scopeOfParts(a.parts) }))
+      .filter((a) => tierForScope(a.scope).id === "custom");
+  }
+
+  /** Most suppliers a pack may contact: the tier limit, or the quoted limit for Custom. */
+  async supplierLimit(pack: { tier: string; auditId: string }): Promise<number> {
+    const tier = packTier(pack.tier as "starter");
+    if (Number.isFinite(tier.maxSuppliers)) return tier.maxSuppliers;
+    const audit = await this.d.db.partsAudit.findUnique({ where: { id: pack.auditId }, select: { quotedMaxSuppliers: true } });
+    return audit?.quotedMaxSuppliers ?? Number.POSITIVE_INFINITY;
   }
 
   /** (Re)starts Checkout for an unpaid pack the caller can access. */

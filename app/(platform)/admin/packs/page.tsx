@@ -20,7 +20,10 @@ export default async function AdminPacks() {
               <td>{p.paidAt ? p.paidAt.toISOString().slice(0, 10) : "-"}</td>
               <td>${(p.priceCents / 100).toLocaleString("en-US")}</td>
               <td>{p.generatedAt ? p.generatedAt.toISOString().slice(0, 10) : "-"}</td>
-              <td>{p.paidAt ? <ActionButton url={`/api/admin/packs/${p.id}/generate`} label="Generate PDF + mark ready" className="text-xs underline" /> : null}</td>
+              <td className="space-x-3">
+                {p.paidAt ? <ActionButton url={`/api/admin/packs/${p.id}/generate`} label="Generate PDF + mark ready" className="text-xs underline" /> : null}
+                {p.paidAt ? <ActionButton url={`/api/admin/packs/${p.id}/release`} label={p.releasedAt ? "Re-release to buyer" : "Release to buyer"} confirm="Generate the PDF from accepted claims and email the buyer?" className="text-xs underline" /> : null}
+              </td>
             </tr>
           ))}
         </tbody>

@@ -47,6 +47,8 @@ export interface PackPdfData {
   }[];
   documents: { id: string; fileName: string; sha256: string; supplierName: string; uploadedAt: Date; pageCount: number | null }[];
   supplierForPart: Record<string, string>;
+  /** Set for a single-part pack PDF. */
+  partLabel?: string;
 }
 
 const STATUS_LABEL: Record<CellStatus, string> = {
@@ -77,7 +79,8 @@ export function PackPdf({ data }: { data: PackPdfData }) {
   return (
     <Document title={`Lodeline evidence pack ${data.packId.slice(0, 8)}`} author="Lodeline">
       <Page size="LETTER" style={s.page}>
-        <Text style={s.h1}>Evidence pack</Text>
+        <Text style={s.h1}>{data.partLabel ? "Evidence pack: single part" : "Evidence pack"}</Text>
+        {data.partLabel ? <Text style={s.muted}>Part {data.partLabel}</Text> : null}
         <Text style={s.muted}>
           {data.orgName} · Pack {data.packId.slice(0, 8)} · Source list {data.sourceFileName} · Generated {data.generatedAt.toISOString().slice(0, 10)} (UTC)
         </Text>
