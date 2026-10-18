@@ -46,14 +46,28 @@ export function requiredStagesFor(materials: Material[]): Stage[] {
   return order.filter((x) => s.has(x));
 }
 
+/**
+ * Stages to document for one part. A "possible" part whose material is unknown
+ * (a bare motor, magnet, speaker or actuator) gets the magnet chain, so the
+ * supplier is asked to confirm the material and its sources instead of the
+ * part silently dropping out of the pack. Not-likely parts need nothing.
+ */
+export const UNKNOWN_MATERIAL_STAGES: readonly Stage[] = ["mine", "separation", "metal_alloy", "magnet"];
+export function stagesForPart(p: { materials: Material[]; coverage?: "likely" | "possible" | "not_likely" | string }): Stage[] {
+  if (p.coverage === "not_likely") return [];
+  const s = requiredStagesFor(p.materials.filter((m) => m !== "other"));
+  if (s.length) return s;
+  return p.coverage === "possible" ? [...UNKNOWN_MATERIAL_STAGES] : [];
+}
+
 export function buildPackMatrix(parts: MatrixPart[], requests: MatrixRequest[], claims: MatrixClaim[]): MatrixRow[] {
   const reqById = new Map(requests.map((r) => [r.id, r]));
   const appliesTo = (c: MatrixClaim, partId: string) => (c.partId ? c.partId === partId : (reqById.get(c.requestId)?.partIds ?? []).includes(partId));
   return parts
-    .filter((p) => p.coverage !== "not_likely" && requiredStagesFor(p.materials).length > 0)
+    .filter((p) => stagesForPart(p).length > 0)
     .map((part) => ({
       part,
-      cells: requiredStagesFor(part.materials).map((stage): MatrixCell => {
+      cells: stagesForPart(part).map((stage): MatrixCell => {
         const forCell = claims.filter((c) => c.stage === stage && appliesTo(c, part.id));
         const accepted = forCell.filter((c) => c.reviewStatus === "accepted");
         if (accepted.some((c) => c.coveredCountry)) return { stage, status: "covered_country", claimIds: accepted.filter((c) => c.coveredCountry).map((c) => c.id) };

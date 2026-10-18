@@ -10,7 +10,10 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { DomainError, NotFoundError, ValidationError } from "@/domain/errors";
 import { extractPdfPages } from "@/infra/pdf-text";
-import { verifyClaims } from "./claim-verify";
+import { verifyClaims, type ProposedClaim } from "./claim-verify";
+import { mockExtractClaims } from "./claim-mock";
+import { claimConfidence } from "./claim-confidence";
+import { STAGES, type Stage } from "@/domain/types";
 import { flagCoveredCountry } from "./countries";
 import { detectDrawingFromText, preflightEvidenceFile } from "./drawing-detect";
 import { nowOf, type PlatformDeps } from "./deps";
@@ -21,16 +24,24 @@ export type PageExtractor = (bytes: Uint8Array) => Promise<string[]>;
 export class EvidenceIntakeService {
   constructor(private readonly d: PlatformDeps, private readonly suppliers: SupplierService, private readonly extractPages: PageExtractor = extractPdfPages) {}
 
-  async createUpload(token: unknown, input: { fileName?: unknown; sizeBytes?: unknown }) {
+  async createUpload(token: unknown, input: { fileName?: unknown; sizeBytes?: unknown; stage?: unknown }) {
     const { request } = await this.suppliers.resolveToken(token);
     const fileName = typeof input.fileName === "string" ? input.fileName.replace(/[^\w.\- ()]/g, "_").slice(0, 200) : "";
     const size = Number(input.sizeBytes);
     if (!fileName || !Number.isInteger(size) || size <= 0) throw new ValidationError("FILE_REQUIRED", "Choose a PDF to upload.", "file");
     const pre = preflightEvidenceFile(fileName, size);
     if (!pre.ok) throw new DomainError(pre.reason === "too_large" ? "payload_too_large" : "unsupported", pre.reason === "cad_file" ? "DRAWING_REJECTED" : "FILE_TYPE_UNSUPPORTED", pre.detail, "file");
+    // Per-stage upload form: the stage the supplier says this document covers (a reviewer hint, not a claim).
+    let declaredStage: Stage | null = null;
+    if (input.stage !== undefined && input.stage !== null && input.stage !== "") {
+      if (typeof input.stage !== "string" || !(STAGES as readonly string[]).includes(input.stage) || !(request.stagesRequested as string[]).includes(input.stage)) {
+        throw new ValidationError("STAGE_INVALID", "Choose one of the requested stages.", "stage");
+      }
+      declaredStage = input.stage as Stage;
+    }
     const id = randomUUID();
     const key = `evidence/${request.packId ?? `verification-${request.verificationId}`}/${request.id}/${id}.pdf`;
-    await this.d.db.evidenceDocument.create({ data: { id, requestId: request.id, fileKey: key, fileName, mime: "application/pdf", sha256: "", sizeBytes: size, status: "requested" } });
+    await this.d.db.evidenceDocument.create({ data: { id, requestId: request.id, fileKey: key, fileName, mime: "application/pdf", sha256: "", sizeBytes: size, status: "requested", declaredStage } });
     const put = await this.d.storage.presignPut(key, "application/pdf", size, 600);
     return { documentId: id, upload: put };
   }
@@ -66,12 +77,15 @@ export class EvidenceIntakeService {
     let created = 0;
     let model = "none";
     if (!verdict.needsManualReview) {
-      const extracted = await this.d.llm.extractClaims(pages).catch((e) => {
-        if ((e as { code?: string }).code === "LLM_ZDR_NOT_CONFIRMED") return null; // admin enters claims manually
+      // LLM not permitted (no ZDR confirmation) or unavailable: use the deterministic
+      // label extractor locally. Nothing leaves the box and the verbatim filter still applies.
+      const extracted: { claims: ProposedClaim[]; model: string } = await this.d.llm.extractClaims(pages).catch((e) => {
+        const code = (e as { code?: string }).code;
+        if (code === "LLM_ZDR_NOT_CONFIRMED" || code === "LLM_REQUEST_FAILED") return { claims: mockExtractClaims(pages), model: "deterministic-fallback" };
         throw e;
       });
-      model = extracted?.model ?? "disabled";
-      const verified = extracted ? verifyClaims(extracted.claims, pages) : [];
+      model = extracted.model;
+      const verified = verifyClaims(extracted.claims, pages);
       for (const v of verified) {
         const query = v.address ?? [v.facilityName, v.country].filter(Boolean).join(", ");
         const geo = query ? await this.d.geocoder.geocode(query).catch(() => null) : null;
@@ -92,6 +106,7 @@ export class EvidenceIntakeService {
             coveredReason: flag.reason,
             geocodeProvider: geo ? this.d.geocoder.provider : null,
             citations: v.citations as unknown as Prisma.InputJsonValue,
+            confidence: claimConfidence(v, { countryMismatch: !!flag.reason?.includes("differs from geocoded") }),
             reviewStatus: "in_review",
           },
         });

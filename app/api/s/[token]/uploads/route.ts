@@ -16,5 +16,5 @@ export const POST = route(async (req: Request, { params }: { params: Promise<{ t
   if (!rl.ok) return json({ error: { code: "RATE_LIMITED", message: "Too many uploads. Try again later." } }, 429, { "Retry-After": String(rl.retryAfterSec) });
   const body = await readJson(req);
   await verifyTurnstile(typeof body.turnstileToken === "string" ? body.turnstileToken : null, ip);
-  return json(await c.platform().intake.createUpload(token, { fileName: body.fileName, sizeBytes: body.sizeBytes }), 201);
+  return json(await c.platform().intake.createUpload(token, { fileName: body.fileName, sizeBytes: body.sizeBytes, stage: body.stage }), 201);
 });

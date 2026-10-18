@@ -14,12 +14,38 @@ import { AuthenticationError, AuthorizationError, ConflictError, NotFoundError, 
 import type { AuthContext, Material, Stage } from "@/domain/types";
 import { decryptToken, encryptToken, generateToken, hashToken } from "@/infra/token-crypto";
 import { normalizeEmail } from "./magic-link";
-import { requiredStagesFor } from "./pack-matrix";
+import { stagesForPart } from "./pack-matrix";
 import { nowOf, type PlatformDeps } from "./deps";
 import type { PackService } from "./packs";
 import { packTier } from "./pricing";
 
 export const REMINDER_DAYS = [3, 7, 14] as const;
+/** mine -> separation -> metal/alloy -> magnet -> component: at most 4 hops upstream. */
+export const MAX_FORWARD_DEPTH = 4;
+export const MAX_FORWARDS_PER_REQUEST = 10;
+
+export interface StageProgress {
+  stage: Stage;
+  /** Documents the supplier uploaded for this stage (per-stage form), excluding failed placeholders. */
+  documents: { id: string; status: string }[];
+  /** Upstream suppliers this stage was forwarded to. */
+  forwardedTo: { requestId: string; supplierName: string; outreachStatus: string; documents: number }[];
+}
+
+/** Per-stage status for the supplier portal. Pure. */
+export function stageProgress(
+  stages: Stage[],
+  documents: { id: string; status: string; declaredStage: Stage | null }[],
+  forwarded: { id: string; stagesRequested: Stage[]; outreachStatus: string; supplier: { name: string }; documents: { id: string; status: string }[] }[]
+): StageProgress[] {
+  return stages.map((stage) => ({
+    stage,
+    documents: documents.filter((d) => d.declaredStage === stage && d.status !== "requested").map((d) => ({ id: d.id, status: d.status })),
+    forwardedTo: forwarded
+      .filter((f) => f.stagesRequested.includes(stage))
+      .map((f) => ({ requestId: f.id, supplierName: f.supplier.name, outreachStatus: f.outreachStatus, documents: f.documents.filter((d) => d.status !== "requested").length })),
+  }));
+}
 const DAY = 86_400_000;
 
 export function nextReminderAt(initialSentAt: Date, remindersSent: number): Date | null {
@@ -53,10 +79,12 @@ export class SupplierService {
     const pack = await this.packs.assertAccess(ctx, packId);
     if (!pack.paidAt) throw new ConflictError("PACK_NOT_PAID", "Complete checkout before contacting suppliers.");
     // Each tier covers a set number of suppliers (src/services/pricing.ts).
+    // Requests a supplier forwarded upstream from the portal do not use the buyer's allowance.
     const tier = packTier(pack.tier);
-    const active = await this.d.db.supplierRequest.count({ where: { packId, revokedAt: null } });
-    if (active >= tier.maxSuppliers) {
-      throw new ConflictError("TIER_SUPPLIER_LIMIT", `The ${tier.label} pack covers up to ${tier.maxSuppliers} suppliers. Contact info@lodeline.org to extend the scope.`);
+    const limit = await this.packs.supplierLimit(pack);
+    const active = await this.d.db.supplierRequest.count({ where: { packId, revokedAt: null, parentRequestId: null } });
+    if (active >= limit) {
+      throw new ConflictError("TIER_SUPPLIER_LIMIT", `The ${tier.label} pack covers up to ${limit} suppliers. Contact info@lodeline.org to extend the scope.`);
     }
     const name = typeof input.name === "string" ? input.name.trim().slice(0, 200) : "";
     if (!name) throw new ValidationError("SUPPLIER_NAME_REQUIRED", "Supplier name is required.", "name");
@@ -64,7 +92,7 @@ export class SupplierService {
     const partIds = Array.isArray(input.partIds) ? input.partIds.filter((x): x is string => typeof x === "string") : [];
     const parts = await this.d.db.auditPart.findMany({ where: { auditId: pack.auditId, id: { in: partIds } } });
     if (parts.length === 0) throw new ValidationError("PARTS_REQUIRED", "Select at least one part from this pack.", "partIds");
-    const stages = [...new Set(parts.flatMap((p) => requiredStagesFor(p.materials as Material[])))] as Stage[];
+    const stages = [...new Set(parts.flatMap((p) => stagesForPart({ materials: p.materials as Material[], coverage: p.coverage })))] as Stage[];
     if (stages.length === 0) throw new ValidationError("PARTS_NOT_IN_SCOPE", "None of the selected parts were flagged.", "partIds");
 
     const now = nowOf(this.d);
@@ -110,6 +138,8 @@ export class SupplierService {
         pack: { include: { org: true, audit: { include: { parts: true } } } },
         verification: { include: { listing: true } },
         documents: { orderBy: { uploadedAt: "desc" } },
+        parent: { include: { supplier: true } },
+        forwarded: { where: { revokedAt: null }, include: { supplier: true, documents: { select: { id: true, status: true } } }, orderBy: { createdAt: "asc" } },
       },
     });
     if (!req) throw new AuthenticationError("TOKEN_INVALID", "This link is invalid.");
@@ -124,7 +154,54 @@ export class SupplierService {
       buyerName: req.pack ? req.pack.org.name : "Lodeline",
       purpose: (req.pack ? "pack" : "verification") as "pack" | "verification",
       reuseConsent: hasActiveReuseConsent(req),
+      stages: stageProgress(req.stagesRequested as Stage[], req.documents, req.forwarded),
     };
+  }
+
+  /**
+   * Forwarding up the chain: from the portal, a supplier hands one or more of
+   * its requested stages to its own upstream supplier (e.g. a magnet maker
+   * forwards "metal/alloy" to its alloy supplier). The upstream supplier gets
+   * its own private link for the same parts and only those stages. Documents
+   * it uploads go through the same checks and review queue and count toward
+   * the same pack. Forwarded links do not use the buyer's supplier allowance.
+   */
+  async forward(token: unknown, input: { stages?: unknown; name?: unknown; contactEmail?: unknown; contactName?: unknown; country?: unknown }) {
+    const { request } = await this.resolveToken(token);
+    if (!request.packId) throw new ConflictError("FORWARD_NOT_AVAILABLE", "Verification requests cover your own documents and cannot be forwarded.");
+    const stages = (Array.isArray(input.stages) ? input.stages : typeof input.stages === "string" ? [input.stages] : []).filter((x): x is Stage => typeof x === "string" && (request.stagesRequested as string[]).includes(x));
+    if (stages.length === 0) throw new ValidationError("STAGES_REQUIRED", "Choose at least one of the requested stages to forward.", "stages");
+    const name = typeof input.name === "string" ? input.name.trim().slice(0, 200) : "";
+    if (!name) throw new ValidationError("SUPPLIER_NAME_REQUIRED", "Your supplier's company name is required.", "name");
+    const contactEmail = normalizeEmail(input.contactEmail);
+    let depth = 0;
+    for (let cur: string | null = request.parentRequestId; cur && depth < 10; depth++) {
+      cur = (await this.d.db.supplierRequest.findUnique({ where: { id: cur }, select: { parentRequestId: true } }))?.parentRequestId ?? null;
+    }
+    if (depth >= MAX_FORWARD_DEPTH) throw new ConflictError("FORWARD_DEPTH", "This request has already been forwarded through several suppliers. Contact info@lodeline.org.");
+    if (request.forwarded.length >= MAX_FORWARDS_PER_REQUEST) throw new ConflictError("FORWARD_LIMIT", "Too many forwards from this link. Contact info@lodeline.org.");
+    const now = nowOf(this.d);
+    const supplier = await this.d.db.supplier.create({
+      data: { name, contactEmail, contactName: typeof input.contactName === "string" ? input.contactName.trim().slice(0, 200) || null : null, country: typeof input.country === "string" ? input.country.trim().slice(0, 100) || null : null },
+    });
+    const raw = generateToken();
+    const ttl = this.d.supplierTokenTtlDays ?? Number(process.env.SUPPLIER_TOKEN_TTL_DAYS ?? 30);
+    const child = await this.d.db.supplierRequest.create({
+      data: {
+        packId: request.packId,
+        parentRequestId: request.id,
+        supplierId: supplier.id,
+        partIds: request.partIds,
+        stagesRequested: stages,
+        tokenHash: hashToken(raw),
+        tokenCiphertext: encryptToken(raw),
+        tokenExpiresAt: new Date(now.getTime() + ttl * DAY),
+        outreachStatus: "queued",
+      },
+    });
+    await this.d.audit.append({ action: "supplier.request_forwarded", actorSupplierRequestId: request.id, subjectId: child.id, payload: { parentRequestId: request.id, packId: request.packId, supplierId: supplier.id, stages } });
+    const sent = await this.sendOutreach(child.id, "initial");
+    return { requestId: child.id, supplierId: supplier.id, stages, emailed: sent };
   }
 
   /**
@@ -209,7 +286,10 @@ export class SupplierService {
     if (!req.supplier.contactEmail || !req.tokenCiphertext) return false;
     const now = nowOf(this.d);
     const link = `${this.d.baseUrl.replace(/\/$/, "")}/s/${decryptToken(req.tokenCiphertext)}`;
-    const { subject, text } = this.template(kind, req.supplier.contactName ?? req.supplier.name, req.pack?.org.name ?? "Lodeline", link, req.stagesRequested, req.reminderCount + 1, purpose);
+    const via = req.parentRequestId ? (await this.d.db.supplierRequest.findUnique({ where: { id: req.parentRequestId }, include: { supplier: true } }))?.supplier.name ?? null : null;
+    const t = this.template(kind, req.supplier.contactName ?? req.supplier.name, req.pack?.org.name ?? "Lodeline", link, req.stagesRequested, req.reminderCount + 1, purpose);
+    const subject = t.subject;
+    const text = via ? t.text.replace(/^(Hello [^\n]*\n\n)/, `$1${via} forwarded this request to you because you supply them for the stages below.\n\n`) : t.text;
     try {
       const r = await this.d.email.send({ to: req.supplier.contactEmail, subject, text });
       await this.d.db.outreachEmail.create({ data: { requestId, kind, providerMessageId: r.providerMessageId, status: "sent", sentAt: now } });

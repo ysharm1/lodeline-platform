@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPackMatrix, openQuestions } from "./pack-matrix";
+import { buildPackMatrix, openQuestions, stagesForPart } from "./pack-matrix";
 
 const parts = [
   { id: "p1", partNumber: "M-1", description: "BLDC motor", supplierName: "Acme", materials: ["ndfeb" as const] },
@@ -35,5 +35,14 @@ describe("pack matrix", () => {
       []
     );
     expect(rows.map((r) => r.part.id)).toEqual(["a"]);
+  });
+
+  it("asks for the magnet chain on a possible part with an unknown material, never for not-likely parts", () => {
+    expect(stagesForPart({ materials: [], coverage: "possible" })).toEqual(["mine", "separation", "metal_alloy", "magnet"]);
+    expect(stagesForPart({ materials: ["other"], coverage: "not_likely" })).toEqual([]);
+    expect(stagesForPart({ materials: ["tungsten"], coverage: "likely" })).toEqual(["mine", "separation", "metal_alloy"]);
+    const rows = buildPackMatrix([{ id: "s", partNumber: "SPK", description: "SPEAKER 45MM", supplierName: null, materials: [], coverage: "possible" }], [], []);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].cells.map((c) => c.status)).toEqual(["no_document", "no_document", "no_document", "no_document"]);
   });
 });

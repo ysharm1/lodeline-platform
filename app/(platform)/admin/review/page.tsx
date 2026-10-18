@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { container } from "@/composition/root";
 import { hasActiveReuseConsent } from "@/services/suppliers";
+import { confidenceLabel } from "@/services/claim-confidence";
 import { requirePageRole } from "../../_lib/guard";
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export default async function ReviewQueue() {
       <h1 className="text-2xl font-semibold">Review queue</h1>
       <p className="text-sm text-muted">Nothing reaches a buyer&apos;s pack until it is accepted here. Every extracted field already passed the verbatim-quote check.</p>
       <table className="w-full text-sm">
-        <thead className="text-left text-muted"><tr><th className="py-2">Supplier</th><th>Stage</th><th>Facility</th><th>Country</th><th>Flag</th><th>For</th><th>Reuse</th><th /></tr></thead>
+        <thead className="text-left text-muted"><tr><th className="py-2">Supplier</th><th>Stage</th><th>Facility</th><th>Country</th><th>Flag</th><th>Confidence</th><th>For</th><th>Reuse</th><th /></tr></thead>
         <tbody>
           {claims.map((c) => (
             <tr key={c.id} className="border-t border-line">
@@ -21,12 +22,13 @@ export default async function ReviewQueue() {
               <td>{c.facilityName ?? "-"}</td>
               <td>{c.countryIso ?? c.country ?? "-"}</td>
               <td>{c.coveredCountry ? <span className="text-red-300">covered</span> : ""}</td>
+              <td className="text-muted">{c.confidence != null ? `${Math.round(c.confidence * 100)}% ${confidenceLabel(c.confidence)}` : "-"}{c.document.declaredStage && c.document.declaredStage !== c.stage ? ` · uploaded for ${c.document.declaredStage}` : ""}</td>
               <td className="text-muted">{c.document.request.pack ? c.document.request.pack.org.name : `Verification: ${c.document.request.verification?.listing.name ?? "supplier"}`}</td>
               <td className="text-muted">{c.document.request.verification || hasActiveReuseConsent(c.document.request) ? "allowed" : "this buyer only"}</td>
               <td><Link className="underline" href={`/admin/review/${c.id}`}>Review</Link></td>
             </tr>
           ))}
-          {claims.length === 0 ? <tr><td className="py-3 text-muted" colSpan={8}>No claims waiting.</td></tr> : null}
+          {claims.length === 0 ? <tr><td className="py-3 text-muted" colSpan={9}>No claims waiting.</td></tr> : null}
         </tbody>
       </table>
       <section>

@@ -10,7 +10,8 @@ const REASONS: Record<string, string> = {
   unreadable_pdf: "The PDF could not be read.",
 };
 
-export function SupplierUpload({ token, turnstileSiteKey }: { token: string; turnstileSiteKey?: string }) {
+/** Upload one PDF. With `stage`, the document is recorded as covering that stage (per-stage form). */
+export function SupplierUpload({ token, turnstileSiteKey, stage, label = "Upload PDF" }: { token: string; turnstileSiteKey?: string; stage?: string; label?: string }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -26,7 +27,7 @@ export function SupplierUpload({ token, turnstileSiteKey }: { token: string; tur
         setMsg(null);
         try {
           const turnstileToken = (form.elements.namedItem("cf-turnstile-response") as HTMLInputElement | null)?.value;
-          const r1 = await fetch(`/api/s/${token}/uploads`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fileName: file.name, sizeBytes: file.size, turnstileToken }) });
+          const r1 = await fetch(`/api/s/${token}/uploads`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fileName: file.name, sizeBytes: file.size, turnstileToken, stage }) });
           const j1 = await r1.json();
           if (!r1.ok) throw new Error(j1?.error?.message ?? "Upload refused.");
           const put = await fetch(j1.upload.url, { method: "PUT", headers: j1.upload.headers, body: file });
@@ -52,7 +53,7 @@ export function SupplierUpload({ token, turnstileSiteKey }: { token: string; tur
           <div className="cf-turnstile" data-sitekey={turnstileSiteKey} />
         </>
       ) : null}
-      <button disabled={busy} className="rounded bg-paper text-ink px-4 py-2 font-medium disabled:opacity-50">{busy ? "Uploading…" : "Upload PDF"}</button>
+      <button disabled={busy} className="rounded bg-paper text-ink px-4 py-2 font-medium disabled:opacity-50">{busy ? "Uploading…" : label}</button>
       {msg ? <p className={`text-sm ${msg.ok ? "text-ok" : "text-gap"}`}>{msg.text}</p> : null}
     </form>
   );
