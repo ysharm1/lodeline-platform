@@ -48,3 +48,11 @@ describe("LLM answer grounding", () => {
     expect((await c.answerFromListings("q", rows)).mode).toBe("mock");
   });
 });
+
+import { parseFilterParams } from "./directory";
+describe("China-free directory filter", () => {
+  it("excludeCovered=1 excludes every DFARS covered country, merged with explicit exclusions", () => {
+    expect(parseFilterParams({ excludeCovered: "1", excludeCountry: "JP" }).excludeCountries.sort()).toEqual(["CN", "IR", "JP", "KP", "RU"]);
+    expect(parseFilterParams({}).excludeCountries).toEqual([]);
+  });
+});

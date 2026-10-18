@@ -11,11 +11,20 @@ import { toIso2 } from "./countries";
 import { directoryFiltersSchema, keywordParseDirectoryQuery, leftoverKeywords, type DirectoryFilters, type ListingForAnswer } from "./directory-query";
 import { nowOf, type PlatformDeps } from "./deps";
 import { hasActiveReuseConsent } from "./suppliers";
+import { COVERED_COUNTRIES } from "./countries";
+import { listingPosition } from "./geocoder";
+import { ensureOrg, grantOrgRole } from "./orgs";
+import { AuthorizationError } from "@/domain/errors";
+import { matchPackRows, rankListings, type MatchListing, type PartMatches } from "./matchmaker";
+import type { MatrixRow } from "./pack-matrix";
+import type { Material, Stage } from "@/domain/types";
 
 export interface ListingRow extends ListingForAnswer {
   website: string | null;
   verifiedAt: Date | null;
   rank: number;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 const FTS = Prisma.sql`to_tsvector('english', coalesce("name", '') || ' ' || coalesce("summary", '') || ' ' || coalesce("city", ''))`;
@@ -30,7 +39,8 @@ export function parseFilterParams(sp: Record<string, string | string[] | undefin
     materials: arr("material").filter((m) => (MATERIALS as readonly string[]).includes(m)),
     stages: arr("stage").filter((s) => (STAGES as readonly string[]).includes(s)),
     countries: arr("country").map((c) => toIso2(c)).filter((c): c is string => !!c),
-    excludeCountries: arr("excludeCountry").map((c) => toIso2(c)).filter((c): c is string => !!c),
+    // excludeCovered=1: "China-free", i.e. outside every DFARS covered country (CN, RU, IR, KP).
+    excludeCountries: [...new Set([...arr("excludeCountry").map((c) => toIso2(c)).filter((c): c is string => !!c), ...(sp.excludeCovered === "1" || sp.excludeCovered === "true" ? COVERED_COUNTRIES : [])])],
     verifiedOnly: sp.verified === "1" || sp.verified === "true",
   });
 }
@@ -50,9 +60,9 @@ export class DirectoryService {
     if (f.verifiedOnly) where.push(Prisma.sql`"verifiedAt" IS NOT NULL`);
     const rank = q ? Prisma.sql`ts_rank(${FTS}, websearch_to_tsquery('english', ${q}))` : Prisma.sql`0`;
     const rows = await this.d.db.$queryRaw<
-      { id: string; name: string; summary: string; website: string | null; city: string | null; countryIso: string | null; stages: string[]; materials: string[]; verifiedAt: Date | null; isExample: boolean; rank: number }[]
+      { id: string; name: string; summary: string; website: string | null; city: string | null; countryIso: string | null; stages: string[]; materials: string[]; verifiedAt: Date | null; isExample: boolean; rank: number; latitude: number | null; longitude: number | null }[]
     >`SELECT "id", "name", "summary", "website", "city", "countryIso", "stages"::text[] AS "stages", "materials"::text[] AS "materials",
-             "verifiedAt", "isExample", ${rank}::float8 AS "rank"
+             "verifiedAt", "isExample", "latitude", "longitude", ${rank}::float8 AS "rank"
       FROM "SupplierListing"
       ${where.length ? Prisma.sql`WHERE ${Prisma.join(where, " AND ")}` : Prisma.empty}
       -- Order by search relevance, then verified, then name. Never by payment:
@@ -60,6 +70,26 @@ export class DirectoryService {
       ORDER BY "rank" DESC, "verifiedAt" DESC NULLS LAST, "name" ASC
       LIMIT ${opts.limit ?? 50}`;
     return rows.map((r) => ({ ...r, verified: !!r.verifiedAt, rank: Number(r.rank) }));
+  }
+
+  /** Published listings outside the covered countries, for the matchmaker. */
+  async matchCandidates(materials: string[]): Promise<MatchListing[]> {
+    const mats = [...new Set(materials.filter((m) => (MATERIALS as readonly string[]).includes(m) && m !== "other"))];
+    if (!mats.length) return [];
+    const rows = await this.search({ q: "", materials: mats as DirectoryFilters["materials"], stages: [], countries: [], excludeCountries: [...COVERED_COUNTRIES], verifiedOnly: false }, { limit: 500 });
+    return rows.map((r) => ({ id: r.id, name: r.name, city: r.city, countryIso: r.countryIso, stages: r.stages, materials: r.materials, verified: r.verified, isExample: r.isExample }));
+  }
+
+  /** Matchmaker suggestions for a pack's open stages (see matchmaker.ts). */
+  async matchesForMatrix(rows: MatrixRow[]): Promise<PartMatches[]> {
+    const candidates = await this.matchCandidates([...rows.flatMap((r) => r.part.materials), ...(rows.some((r) => !r.part.materials.filter((m) => m !== "other").length) ? ["ndfeb", "smco"] : [])]);
+    return matchPackRows(rows, candidates);
+  }
+
+  /** Suggestions per material x stage (free-audit results, before a pack exists). */
+  async matchesForNeeds(needs: { material: Material; stage: Stage }[]) {
+    const candidates = await this.matchCandidates(needs.map((n) => n.material));
+    return needs.map((n) => ({ ...n, suggestions: rankListings(candidates, n.material, n.stage) }));
   }
 
   /** The Ask box. The answer can only cite listings returned by the DB query. */
@@ -108,10 +138,38 @@ export class DirectoryService {
     };
   }
 
+  /**
+   * A signed-in buyer lists what its own company supplies. The organization
+   * gains the seller role (it keeps buying). The listing starts unpublished and
+   * unverified: Lodeline staff publish it from /admin/suppliers, and only
+   * accepted, reusable evidence can verify it.
+   */
+  async submitOwn(ctx: AuthContext, input: Record<string, unknown>) {
+    if (ctx.role !== "buyer" && ctx.role !== "admin") throw new AuthorizationError("ROLE_FORBIDDEN", "Sign in with a company account to list your supplies.");
+    const data = this.parseListingInput(input);
+    if (!data.stages.length || !data.materials.length) throw new ValidationError("SCOPE_REQUIRED", "Choose at least one stage and one material you supply.", "stages");
+    const orgId = await ensureOrg(this.d, ctx, data.name, ["buyer", "seller"]);
+    await grantOrgRole(this.d, ctx.userId, orgId, "seller");
+    const count = await this.d.db.supplierListing.count({ where: { orgId } });
+    if (count >= 20) throw new ValidationError("LISTING_LIMIT", "Contact info@lodeline.org to list more than 20 entries.");
+    const pos = await listingPosition(this.d.geocoder, data.city, data.countryIso);
+    const row = await this.d.db.supplierListing.create({
+      data: { ...data, ...pos, orgId, published: false, isExample: false, verifiedAt: null, countries: data.countryIso ? [data.countryIso] : [] },
+    });
+    await this.d.audit.append({ action: "listing.submitted_by_org", actorUserId: ctx.userId, subjectId: row.id, payload: { orgId, name: row.name } });
+    return row;
+  }
+
+  async listOwn(ctx: AuthContext) {
+    if (!ctx.orgId) return [];
+    return this.d.db.supplierListing.findMany({ where: { orgId: ctx.orgId }, orderBy: { createdAt: "desc" } });
+  }
+
   async create(ctx: AuthContext, input: Record<string, unknown>) {
     const admin = requireAdmin(ctx);
     const data = this.parseListingInput(input);
-    const row = await this.d.db.supplierListing.create({ data: { ...data, countries: data.countryIso ? [data.countryIso] : [] } });
+    const pos = await listingPosition(this.d.geocoder, data.city, data.countryIso);
+    const row = await this.d.db.supplierListing.create({ data: { ...data, ...pos, countries: data.countryIso ? [data.countryIso] : [] } });
     await this.d.audit.append({ action: "listing.created", actorUserId: admin.userId, subjectId: row.id, payload: { name: row.name } });
     return row;
   }
@@ -119,7 +177,8 @@ export class DirectoryService {
   async update(ctx: AuthContext, id: string, input: Record<string, unknown>) {
     const admin = requireAdmin(ctx);
     const data = this.parseListingInput(input);
-    const row = await this.d.db.supplierListing.update({ where: { id }, data: { ...data, countries: data.countryIso ? [data.countryIso] : [] } }).catch(() => null);
+    const pos = await listingPosition(this.d.geocoder, data.city, data.countryIso);
+    const row = await this.d.db.supplierListing.update({ where: { id }, data: { ...data, ...pos, countries: data.countryIso ? [data.countryIso] : [] } }).catch(() => null);
     if (!row) throw new NotFoundError("LISTING_NOT_FOUND", "Listing not found.");
     await this.d.audit.append({ action: "listing.updated", actorUserId: admin.userId, subjectId: id, payload: { name: row.name, published: row.published } });
     return row;

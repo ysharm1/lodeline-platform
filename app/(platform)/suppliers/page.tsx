@@ -5,6 +5,8 @@ import { MATERIAL_LABELS, STAGE_LABELS } from "@/services/stage-rules";
 import { MATERIALS, STAGES } from "@/domain/types";
 import { AskBox } from "./ask-box";
 import { Disclaimer } from "../_components/disclaimer";
+import { PackMap } from "../_components/pack-map";
+import { isCoveredIso } from "@/services/countries";
 export const dynamic = "force-dynamic";
 
 export default async function Directory({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -17,6 +19,10 @@ export default async function Directory({ searchParams }: { searchParams: Promis
   } catch {
     unavailable = true;
   }
+  const excludeCovered = sp.excludeCovered === "1" || sp.excludeCovered === "true";
+  const points = rows
+    .filter((r) => r.latitude != null && r.longitude != null)
+    .map((r) => ({ id: r.id, lat: r.latitude!, lng: r.longitude!, label: r.name, stage: r.stages.map((s) => STAGE_LABELS[s as keyof typeof STAGE_LABELS]).join(", "), covered: isCoveredIso(r.countryIso) }));
   return (
     <div className="space-y-6">
       <header className="space-y-1">
@@ -36,9 +42,14 @@ export default async function Directory({ searchParams }: { searchParams: Promis
         </select>
         <input name="country" defaultValue={f.countries.join(",")} placeholder="Country (e.g. US)" className="rounded border border-line bg-ink-2 px-2 py-1.5" />
         <label className="flex items-center gap-2"><input type="checkbox" name="verified" value="1" defaultChecked={f.verifiedOnly} /> Verified only</label>
+        <label className="md:col-span-2 flex items-center gap-2"><input type="checkbox" name="excludeCovered" value="1" defaultChecked={excludeCovered} /> Outside covered countries (China, Russia, Iran, North Korea)</label>
         <button className="md:col-span-6 justify-self-start rounded bg-paper text-ink px-3 py-1.5 font-medium">Search</button>
       </form>
       {unavailable ? <p className="text-gap text-sm">Directory unavailable (database not configured).</p> : null}
+      <section className="space-y-1" data-testid="directory-map">
+        <PackMap points={points} emptyText="No listings with a map position match." />
+        {points.length ? <p className="text-xs text-muted">Pins show the listed city or, where that is unknown, the country centre (approximate). Red = covered country.</p> : null}
+      </section>
       <ul className="divide-y divide-line rounded border border-line">
         {rows.map((r) => (
           <li key={r.id} className="p-3 space-y-1">

@@ -5,6 +5,7 @@ import { MATERIAL_LABELS, STAGE_LABELS } from "@/services/stage-rules";
 import { scopeOfParts, tierForScope, usd } from "@/services/pricing";
 import { Disclaimer } from "../../_components/disclaimer";
 import { ActionButton } from "../../_components/action-button";
+import { auditNeeds } from "@/services/matchmaker";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,15 @@ export default async function AuditResults({
   // The pack tier and price follow from this audit's scope (src/services/pricing.ts).
   const scope = scopeOfParts(parts);
   const tier = tierForScope(scope);
+  // Custom scope: staff can set a fixed quote for this audit (/admin/quotes); then it can be ordered here.
+  const quoted = tier.priceCents === null ? (audit.quotedPriceCents ?? null) : null;
+  // Matchmaker: directory sources outside the covered countries for each flagged material x stage.
+  let matches: Awaited<ReturnType<ReturnType<ReturnType<typeof container>["platform"]>["directory"]["matchesForNeeds"]>> = [];
+  try {
+    matches = await container().platform().directory.matchesForNeeds(auditNeeds(parts));
+  } catch {
+    matches = [];
+  }
   return (
     <div className="space-y-8">
       {demo === "1" ? (
@@ -65,6 +75,22 @@ export default async function AuditResults({
         </summary>
         <PartsTable parts={notLikely} empty="None." />
       </details>
+      {matches.length ? (
+        <section className="space-y-2" data-testid="audit-matches">
+          <h2 className="text-xl font-semibold">Sources in the directory</h2>
+          <p className="text-sm text-muted">Directory suppliers that list each flagged material and stage, outside China, Russia, Iran and North Korea. Leads to ask, not evidence.</p>
+          <ul className="text-sm space-y-1">
+            {matches.map((m) => (
+              <li key={`${m.material}-${m.stage}`}>
+                <span className="text-muted">{MATERIAL_LABELS[m.material]} · {STAGE_LABELS[m.stage]}:</span>{" "}
+                {m.suggestions.length
+                  ? m.suggestions.map((sg, i) => <span key={sg.id}>{i ? ", " : ""}<a className="underline" href={`/suppliers/${sg.id}`}>{sg.name}</a>{sg.verified ? " (verified)" : ""}</span>)
+                  : <a className="underline text-muted" href={`/suppliers?material=${m.material}&stage=${m.stage}&excludeCovered=1`}>no listing yet</a>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <section className="rounded border border-line bg-ink-2 p-5 space-y-2">
         <h2 className="font-semibold">Next step: an evidence pack</h2>
         <p className="text-sm text-muted">
@@ -76,7 +102,11 @@ export default async function AuditResults({
             Your scope: <strong>{scope.parts} part{scope.parts === 1 ? "" : "s"}</strong> to document
             {scope.suppliers ? <> from <strong>{scope.suppliers} named supplier{scope.suppliers === 1 ? "" : "s"}</strong></> : null}.{" "}
             {tier.priceCents === null ? (
-              <>That is larger than our Standard pack, so we price it as a fixed quote.</>
+              quoted ? (
+                <>That is larger than our Standard pack. Your fixed quote: <strong>{usd(quoted)}</strong>, covering up to {audit.quotedMaxSuppliers ?? scope.suppliers} suppliers.</>
+              ) : (
+                <>That is larger than our Standard pack, so we price it as a fixed quote.</>
+              )
             ) : (
               <>
                 That fits the <strong>{tier.label}</strong> pack: <strong>{usd(tier.priceCents)}</strong>, covering up to {tier.maxParts} parts and {tier.maxSuppliers} suppliers.
@@ -87,7 +117,10 @@ export default async function AuditResults({
         {audit.status === "classified" && summary.flagged > 0 && tier.priceCents !== null ? (
           <ActionButton url="/api/packs" body={{ auditId: audit.id, accessToken: t }} label={`Order the ${tier.label} pack (${usd(tier.priceCents)})`} />
         ) : null}
-        {audit.status === "classified" && summary.flagged > 0 && tier.priceCents === null ? (
+        {audit.status === "classified" && summary.flagged > 0 && quoted ? (
+          <ActionButton url="/api/packs" body={{ auditId: audit.id, accessToken: t }} label={`Order the Custom pack (${usd(quoted)})`} />
+        ) : null}
+        {audit.status === "classified" && summary.flagged > 0 && tier.priceCents === null && !quoted ? (
           <a href="/#contact" className="inline-block rounded bg-accent text-ink px-3 py-1.5 text-sm font-medium">Request a quote</a>
         ) : null}
       </section>

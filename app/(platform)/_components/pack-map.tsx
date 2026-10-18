@@ -12,7 +12,7 @@ export interface MapPoint {
 }
 
 /** Leaflet + OpenStreetMap tiles. Green = documented, red = covered country. */
-export function PackMap({ points }: { points: MapPoint[] }) {
+export function PackMap({ points, emptyText = "No geocoded facilities from accepted evidence yet." }: { points: MapPoint[]; emptyText?: string }) {
   const el = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!el.current || points.length === 0) return;
@@ -39,7 +39,7 @@ export function PackMap({ points }: { points: MapPoint[] }) {
       map?.remove();
     };
   }, [points]);
-  if (points.length === 0) return <p className="text-sm text-muted">No geocoded facilities from accepted evidence yet.</p>;
+  if (points.length === 0) return <p className="text-sm text-muted">{emptyText}</p>;
   return <div ref={el} className="h-80 w-full rounded border border-line" />;
 }
 

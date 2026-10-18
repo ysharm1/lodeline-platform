@@ -10,6 +10,7 @@ import { StatusPill, STATUS_STYLE } from "../../../_components/status";
 import { Disclaimer } from "../../../_components/disclaimer";
 import { ConflictDisclosure } from "../../../_components/conflict-disclosure";
 import { packTier, refreshPlanFor, usd } from "@/services/pricing";
+import { MATERIAL_LABELS } from "@/services/stage-rules";
 export const dynamic = "force-dynamic";
 
 export default async function PackPage({ params, searchParams }: { params: Promise<{ packId: string }>; searchParams: Promise<{ paid?: string; cancelled?: string; refresh?: string }> }) {
@@ -25,7 +26,10 @@ export default async function PackPage({ params, searchParams }: { params: Promi
   }
   const { pack, matrix, accepted, requests } = await p.packs.view(packId);
   const tier = packTier(pack.tier);
-  const activeSuppliers = requests.filter((r) => !r.revokedAt).length;
+  const supplierLimit = await p.packs.supplierLimit(pack);
+  const activeSuppliers = requests.filter((r) => !r.revokedAt && !r.parentRequestId).length;
+  const matches = pack.paidAt ? await p.directory.matchesForMatrix(matrix) : [];
+  const nameOfRequest = new Map(requests.map((r) => [r.id, r.supplier.name]));
   const refresh = await p.refresh.forPack(pack.id);
   const refreshPlan = refreshPlanFor(pack.tier);
   const flaggedParts = pack.audit.parts.filter((x) => x.coverage !== "not_likely");
@@ -40,7 +44,8 @@ export default async function PackPage({ params, searchParams }: { params: Promi
         <h1 className="text-3xl font-semibold">Evidence pack</h1>
         <p className="text-sm text-muted">
           Status: {pack.status.replace("_", " ")} · {tier.label} pack · Fixed fee {usd(pack.priceCents)}
-          {Number.isFinite(tier.maxSuppliers) ? ` · ${activeSuppliers} of ${tier.maxSuppliers} suppliers used` : ""}
+          {Number.isFinite(supplierLimit) ? ` · ${activeSuppliers} of ${supplierLimit} suppliers used` : ""}
+          {pack.releasedAt ? ` · released ${pack.releasedAt.toISOString().slice(0, 10)}` : ""}
         </p>
         {sp.refresh ? <p className="text-sm text-accent">Refresh plan started. Stripe may take a moment to confirm.</p> : null}
         {sp.paid && !pack.paidAt ? <p className="text-sm text-accent">Payment received by Stripe; confirming… refresh in a moment.</p> : null}
@@ -85,7 +90,9 @@ export default async function PackPage({ params, searchParams }: { params: Promi
           {requests.map((r) => (
             <li key={r.id} className="p-3 flex flex-wrap items-center justify-between gap-2">
               <span>
-                <strong>{r.supplier.name}</strong> · {r.supplier.contactEmail} · {r.partIds.length} part(s) · {r.outreachStatus}
+                <strong>{r.supplier.name}</strong>
+                {r.parentRequestId ? <span className="text-muted"> (forwarded by {nameOfRequest.get(r.parentRequestId) ?? "a supplier"}: {r.stagesRequested.map((s) => STAGE_LABELS[s]).join(", ")})</span> : null}
+                {" · "}{r.supplier.contactEmail} · {r.partIds.length} part(s) · {r.outreachStatus}
                 {r.revokedAt ? " · link revoked" : r.tokenExpiresAt < new Date() ? " · link expired" : ` · link expires ${r.tokenExpiresAt.toISOString().slice(0, 10)}`}
                 {" · "}{r.documents.length} document(s)
               </span>
@@ -95,6 +102,32 @@ export default async function PackPage({ params, searchParams }: { params: Promi
         </ul>
         {pack.paidAt ? <AddSupplierForm packId={pack.id} parts={flaggedParts.map((x) => ({ id: x.id, label: `${x.partNumber ?? ""} ${x.description}`.trim(), supplierName: x.supplierName }))} /> : null}
       </section>
+
+      {matches.length ? (
+        <section className="space-y-3" data-testid="matchmaker">
+          <h2 className="text-xl font-semibold">Suggested sources for open stages</h2>
+          <p className="text-sm text-muted">Directory suppliers that list this material and stage, outside China, Russia, Iran and North Korea. Verified listings first. These are leads to ask, not evidence: nothing here changes the table above.</p>
+          <ul className="divide-y divide-line rounded border border-line text-sm">
+            {matches.map((m) => (
+              <li key={m.partId} className="p-3 space-y-1">
+                <span className="font-mono">{m.partNumber ?? "-"}</span> {m.description}
+                <ul className="pl-4 text-muted">
+                  {m.needs.map((n) => (
+                    <li key={`${n.material}-${n.stage}`}>
+                      {MATERIAL_LABELS[n.material]} · {STAGE_LABELS[n.stage]}{n.reason === "covered_country" ? " (current source in a covered country)" : ""}:{" "}
+                      {n.suggestions.length
+                        ? n.suggestions.map((sg, i) => (
+                            <span key={sg.id}>{i ? ", " : ""}<a className="underline" href={`/suppliers/${sg.id}`}>{sg.name}</a>{sg.verified ? " (verified)" : ""}{sg.countryIso ? ` · ${sg.countryIso}` : ""}</span>
+                          ))
+                        : "no directory match yet"}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {pack.paidAt ? (
         <section className="rounded border border-line bg-ink-2 p-4 space-y-2">
@@ -120,8 +153,15 @@ export default async function PackPage({ params, searchParams }: { params: Promi
 
       <section className="flex gap-4 items-center">
         <a href={`/api/packs/${pack.id}/pdf`} className="rounded border border-line px-3 py-1.5 text-sm">Download evidence pack PDF</a>
-        <span className="text-xs text-muted">Generated from accepted evidence only.</span>
+        <span className="text-xs text-muted">Generated from accepted evidence only. One PDF per part:</span>
       </section>
+      {matrix.length ? (
+        <ul className="flex flex-wrap gap-2 text-xs" data-testid="part-pdfs">
+          {matrix.map((r) => (
+            <li key={r.part.id}><a className="underline" href={`/api/packs/${pack.id}/pdf?part=${r.part.id}`}>{r.part.partNumber ?? r.part.description.slice(0, 24)}</a></li>
+          ))}
+        </ul>
+      ) : null}
       <ConflictDisclosure />
       <Disclaimer />
     </div>

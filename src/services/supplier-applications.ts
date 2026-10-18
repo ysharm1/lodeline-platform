@@ -5,6 +5,7 @@
  * The listing only becomes "verified" through DirectoryService.verify, which
  * requires accepted evidence documents; an application never verifies itself.
  */
+import { listingPosition } from "./geocoder";
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "@/domain/errors";
 import { MATERIALS, STAGES, type AuthContext } from "@/domain/types";
@@ -99,6 +100,9 @@ export class SupplierApplicationService {
   async approve(ctx: AuthContext, id: string, note?: unknown) {
     const admin = requireAdmin(ctx);
     const reviewNote = typeof note === "string" ? note.trim().slice(0, 1000) || null : null;
+    // Map position is looked up before the transaction (the geocoder may call out).
+    const pre = await this.d.db.supplierApplication.findUnique({ where: { id }, select: { city: true, countryIso: true } });
+    const pos = pre ? await listingPosition(this.d.geocoder, pre.city, pre.countryIso) : {};
     const result = await this.d.db.$transaction(async (tx) => {
       const app = await tx.supplierApplication.findUnique({ where: { id } });
       if (!app) throw new NotFoundError("APPLICATION_NOT_FOUND", "Application not found.");
@@ -115,6 +119,7 @@ export class SupplierApplicationService {
           materials: app.materials,
           published: false, // pending verification
           isExample: false,
+          ...pos,
         },
       });
       const updated = await tx.supplierApplication.update({
