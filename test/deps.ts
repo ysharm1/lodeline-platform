@@ -42,7 +42,6 @@ export function makeDeps(db: PrismaClient, opts: { now?: () => Date; billing?: B
     geocoder: new CachingGeocoder(rawGeo, new PrismaGeocodeCache(db)),
     baseUrl: "https://app.test",
     now: opts.now,
-    packPriceCents: 250000,
   };
   return { deps, email, storage, repo, rawGeo };
 }

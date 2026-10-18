@@ -19,6 +19,8 @@ Contact: [info@lodeline.org](mailto:info@lodeline.org) · Yash Sharma, (602) 315
 - Leaflet
 
 **Further reading**
+- [`docs/business-model.md`](docs/business-model.md): how Lodeline makes money, in plain language (start here)
+- [`docs/changes-2026-10-18.md`](docs/changes-2026-10-18.md): what changed in the 18 Oct 2026 business model update, step by step
 - [`docs/workflow.md`](docs/workflow.md): the product workflow, step by step
 - [`docs/architecture.md`](docs/architecture.md): code layout, data model and security controls
 - [`docs/plan.md`](docs/plan.md): the original build plan
@@ -34,28 +36,38 @@ Contact: [info@lodeline.org](mailto:info@lodeline.org) · Yash Sharma, (602) 315
 | Readiness-call request and checklist download (stored in Postgres, emailed to the team) | `/#contact`, `/#checklist` | public |
 | Free demo (fictional parts list through the real audit pipeline) | `/demo` | public |
 | Free parts audit (CSV/XLSX upload; results link emailed) | `/audit`, `/audit/[id]?t=…` | public |
-| Evidence pack (Stripe Checkout, $2,000–$5,000 fixed fee, default $2,500) | `/pack`, `/buyer/packs`, `/buyer/packs/[id]` | buyer |
-| Supplier upload portal (tokenized link, no login) | `/s/[token]` | supplier |
+| Evidence pack (Stripe Checkout; Starter $2,500 / Standard $5,000 / Custom quoted, set by the audit's scope) | `/pack`, `/buyer/packs`, `/buyer/packs/[id]` | buyer |
+| Refresh plan (monthly Stripe subscription that keeps a pack current) | `/buyer/packs/[id]` | buyer |
+| Supplier upload portal (tokenized link, no login), with optional consent to reuse documents | `/s/[token]` | supplier |
+| Supplier verification (supplier pays a flat annual fee for a review of its own evidence) | `/for-suppliers`, `/admin/verifications` | supplier, admin |
+| Refresh plan queue | `/admin/refresh` | admin |
 | Admin review queue, packs, directory CRUD, supplier applications, leads, audit log | `/admin/*` | admin |
 | Supplier directory with full-text search and a grounded Ask box | `/suppliers`, `/suppliers/[id]` | public |
 | "For suppliers": application to be listed as a documented source | `/for-suppliers` | public |
 | SEO | `/sitemap.xml`, `/robots.txt`, OG and Twitter metadata, canonical URLs on `APP_BASE_URL` | – |
 
-### Marketing site is a 1:1 copy
+### Marketing site is a 1:1 copy, plus marked additions
 
-The lodeline.org pages are reproduced exactly: same design, layout, copy and link targets. Nothing is added to them and nothing is reworded. A test (`app/_site/site.test.ts`) checks every page's visible text, `href`s and classes against the snapshot in `vendor/lodeline-site/`.
+The lodeline.org pages are reproduced exactly: same design, layout, copy and link targets. Nothing is reworded or removed. A test (`app/_site/site.test.ts`) checks every page's visible text, `href`s and classes against the snapshot in `vendor/lodeline-site/`.
 
-The platform pages (`/demo`, `/pack`, `/suppliers`, `/for-suppliers`, `/audit`, `/login` and the signed-in areas) are **new, separate pages**. They link back to the site (`/`, `/#contact`, `/sample-evidence-pack`, `/privacy`). The marketing pages don't link to them yet.
+The platform pages (`/demo`, `/pack`, `/suppliers`, `/for-suppliers`, `/audit`, `/login` and the signed-in areas) are **new, separate pages**. They link back to the site (`/`, `/#contact`, `/sample-evidence-pack`, `/privacy`).
 
-Adding entry points (for example, pointing an existing CTA at `/demo`) is an owner decision. If approved, make the change as a link-target-only patch in `scripts/port-site.py`.
+Owner-approved entry points are added through `ADDITIONS` in `scripts/port-site.py`. Each added element is marked `data-ll-added="<reason>"`; the site test sets marked elements aside before its word-for-word check, and separately checks that the additions are exactly the approved ones. Today there is one: a **Run a free parts audit** button in the home page hero, next to "View a sample evidence pack", linking to `/audit` (added 18 Oct 2026).
 
 ## Workflow
 
 ```
-directory ─► free audit / demo ─► paid pack (Stripe) ─► supplier uploads (/s/[token])
-   ▲                                                         │
-   │                                                         ▼
-marketplace referral ◄── pack PDF ◄── admin review (accept/reject/edit claims)
+BUYER SIDE
+directory ─► free audit / demo ─► paid pack (tiered, Stripe) ─► supplier uploads (/s/[token])
+   ▲                                                                │  (optional consent to reuse)
+   │                                                                ▼
+sourcing (buyer-paid) ◄── pack PDF ◄── admin review (accept/reject/edit claims)
+                              │
+                              └─► refresh plan (monthly, re-checked quarterly)
+
+SUPPLIER SIDE
+apply (/for-suppliers) ─► listing (unpublished) ─► paid verification (annual, flat fee)
+   ─► supplier uploads (/s/[token]) ─► admin review ─► verify listing from accepted, reusable evidence
 ```
 
 1. **Directory.** A buyer searches documented suppliers by material, stage and country, and can ask the directory a question in plain language.
@@ -64,9 +76,12 @@ marketplace referral ◄── pack PDF ◄── admin review (accept/reject/ed
 4. **Supplier uploads.** The buyer adds supplier contacts. Each gets a private 30-day link and reminders on days 3, 7 and 14. Files go straight to S3 through a presigned PUT. Drawings and ITAR/CUI-marked files are rejected.
 5. **Review.** Text is extracted, and claims (issuer, date, stage, facility, address, country) must quote the page verbatim. Facilities are geocoded and covered countries (CN/RU/IR/KP) flagged. An admin accepts, rejects or edits each claim.
 6. **Pack PDF.** Only accepted claims reach the buyer page, the map and the PDF.
-7. **Marketplace referral.** Where a stage has no documented source, Lodeline introduces verified directory suppliers. Today only the schema exists; see *Stubbed*.
+7. **Refresh plan.** The buyer can pay monthly to have the pack re-checked every quarter.
+8. **Sourcing.** Where a stage has no documented source, Lodeline can introduce verified directory suppliers for a flat fee paid by the buyer. Supplier-paid commissions are switched off (`SUPPLIER_COMMISSIONS_ENABLED` in `src/services/pricing.ts`) until a lawyer has reviewed them.
 
-Suppliers can also apply at `/for-suppliers`. An approved application becomes an **unpublished, unverified** listing. It is only marked verified when backed by accepted evidence documents.
+Suppliers can also apply at `/for-suppliers`. An approved application becomes an **unpublished, unverified** listing. A supplier can pay for an annual **verification**: we review its own documents through the same upload portal and review queue. The fee is the same whatever the review finds. A listing is only marked verified when backed by accepted evidence documents that the supplier allowed Lodeline to reuse (or sent for its own verification). Payment never verifies a listing.
+
+Every buyer-facing page with findings, and the pack PDF, carries a short disclosure of how Lodeline is paid.
 
 Details: [`docs/workflow.md`](docs/workflow.md).
 
@@ -176,7 +191,7 @@ The order of preference is Vercel with the `lodeline.org` domain, or Render.
 5. Pages that are pre-rendered at build time (the marketing pages, sitemap and robots) read `APP_BASE_URL`, `TURNSTILE_SITE_KEY` and `CALENDLY_URL` **at build time**. Redeploy after changing them.
 6. Add `https://lodeline.org` to the S3 bucket CORS (PUT/GET).
 7. Stripe:
-   - Add the webhook endpoint `https://lodeline.org/api/webhooks/stripe` for the event `checkout.session.completed`.
+   - Add the webhook endpoint `https://lodeline.org/api/webhooks/stripe` for the events `checkout.session.completed` and `customer.subscription.deleted` (the second one ends refresh plans when a buyer cancels).
    - Put the signing secret in `STRIPE_WEBHOOK_SECRET`.
 8. Email:
    - Verify `lodeline.org` in Postmark or Resend (SPF/DKIM).
@@ -216,7 +231,6 @@ Production refuses to boot without the **required** variables (`src/composition/
 | `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_PROVIDER` | optional | LLM classification, extraction and Ask; keyword fallback without a key |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_REQUIRED` | recommended | bot protection on the audit, lead, application and supplier-upload forms |
 | `TOKEN_ENCRYPTION_KEY` | recommended | encrypts supplier-link tokens at rest |
-| `PACK_PRICE_CENTS` (200000–500000) or `STRIPE_PRICE_PACK_STANDARD` | optional | pack fee (default $2,500) |
 | `GEOCODER` (`nominatim`/`mapbox`/`none`), `GEOCODER_USER_AGENT`, `NOMINATIM_BASE_URL`, `MAPBOX_TOKEN` | optional | facility geocoding |
 | `LEADS_NOTIFY_EMAIL` | optional | where lead and application notifications go (default `info@lodeline.org`) |
 | `CALENDLY_URL` | optional | inline booking in the contact section; an empty string means form only |
@@ -227,7 +241,9 @@ Production refuses to boot without the **required** variables (`src/composition/
 
 | Area | State |
 |---|---|
-| Marketplace referrals / commission ledger | schema only (`Referral`, `CommissionInvoice`); `/admin/referrals` is a stub |
+| Sourcing introductions | not built as a flow; quoted by email as a buyer-paid flat fee. Supplier commissions are switched off (`SUPPLIER_COMMISSIONS_ENABLED=false`); `Referral` / `CommissionInvoice` tables stay unused |
+| Reusing consented documents in another buyer's pack | consent is recorded and enforced for directory verification; copying consented documents into a second buyer's pack is a manual admin step for now |
+| Self-serve supplier verification checkout | an admin starts each verification from `/admin/verifications`; the supplier gets the payment link by email |
 | OCR for scanned certificates | not built; image-only PDFs are flagged for manual claim entry |
 | Background job queue | document processing runs inside the request (60 s max); move to a queue as volume grows |
 | Supplier accounts | suppliers use token links only; `/supplier` is a placeholder |

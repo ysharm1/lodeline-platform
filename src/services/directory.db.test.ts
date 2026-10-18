@@ -48,7 +48,7 @@ describe("supplier directory (Postgres FTS)", () => {
     expect(none.citedIds).toEqual([]);
   });
 
-  it("verification requires accepted evidence documents", async () => {
+  it("verification requires accepted evidence documents the supplier allowed us to reuse", async () => {
     const { deps } = makeDeps(db);
     const dir = new DirectoryService(deps);
     const l = await dir.create(admin, { name: "Example Listing", country: "EE", stages: ["separation"], materials: ["ndfeb"], published: true });
@@ -62,6 +62,9 @@ describe("supplier directory (Postgres FTS)", () => {
     await expect(dir.verify(admin, l.id, [doc.id])).rejects.toMatchObject({ code: "EVIDENCE_NOT_ACCEPTED" });
     await db.evidenceClaim.update({ where: { id: claim.id }, data: { reviewStatus: "accepted" } });
     await db.evidenceDocument.update({ where: { id: doc.id }, data: { status: "accepted" } });
+    // Accepted, but collected for one buyer's pack without the supplier's consent to reuse.
+    await expect(dir.verify(admin, l.id, [doc.id])).rejects.toMatchObject({ code: "REUSE_CONSENT_REQUIRED" });
+    await db.supplierRequest.update({ where: { id: req.id }, data: { reuseConsentAt: new Date(), reuseConsentName: "Sam Supplier" } });
     const v = await dir.verify(admin, l.id, [doc.id]);
     expect(v.verifiedAt).not.toBeNull();
     expect(v.verifiedFromClaimIds).toEqual([claim.id]);

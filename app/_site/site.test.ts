@@ -7,6 +7,9 @@ import { PUBLIC_PATHS } from "./seo";
 
 const PAGES = join(__dirname, "pages");
 const read = (n: string) => readFileSync(join(PAGES, `${n}.tsx`), "utf8");
+/** Owner-approved additions (scripts/port-site.py ADDITIONS) carry data-ll-added; everything else must match lodeline.org. */
+const ADDED_RE = /<(\w+)\b[^>]*\bdata-ll-added="[^"]*"[^>]*>[\s\S]*?<\/\1>(\{" "\})?/g;
+const withoutAdditions = (tsx: string) => tsx.replace(ADDED_RE, "");
 
 describe("ported lodeline.org pages", () => {
   it("home keeps the live copy, sections, sources and contact details", () => {
@@ -37,7 +40,7 @@ describe("ported lodeline.org pages", () => {
       html = html.slice(html.indexOf("<body"));
       html = html.replace(/<(script|noscript)[\s\S]*?<\/\1>/g, "");
       html = html.replace(/<form[^>]*id="(quiz|lead|magnet)"[\s\S]*?<\/form>/g, "").replace(/<!--[\s\S]*?-->/g, "");
-      let tsx = read(page);
+      let tsx = withoutAdditions(read(page));
       tsx = tsx.slice(tsx.indexOf("return (") + "return (".length);
       const vHref = new Set([...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1].replace(/^assets\//, "/assets/").replace(/&amp;/g, "&")));
       const gHref = new Set([...tsx.matchAll(/href=(?:"([^"]*)"|\{"((?:[^"\\]|\\.)*)"\})/g)].map((m) => m[1] ?? JSON.parse(`"${m[2]}"`)));
@@ -48,6 +51,18 @@ describe("ported lodeline.org pages", () => {
       const gText = tsx.replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/\{("(?:[^"\\]|\\.)*")\}/g, (_, j) => JSON.parse(j)).replace(/<[^>]+>/g, " ");
       const vText = html.replace(/<[^>]+>/g, " ");
       expect(words(gText).join(" "), page).toBe(words(vText).join(" "));
+    }
+  });
+  it("has only the approved, marked additions, each linking into the platform", () => {
+    const home = read("home");
+    const added = [...home.matchAll(ADDED_RE)].map((m) => m[0]);
+    expect(added).toHaveLength(1);
+    expect(added[0]).toContain('href="/audit"');
+    expect(added[0]).toContain('data-ll-added="free-audit"');
+    expect(added[0]).toContain("Run a free parts audit");
+    for (const f of readdirSync(PAGES)) {
+      if (f === "home.tsx") continue;
+      expect(readFileSync(join(PAGES, f), "utf8"), f).not.toContain("data-ll-added");
     }
   });
   it("keeps the interactive islands", () => {

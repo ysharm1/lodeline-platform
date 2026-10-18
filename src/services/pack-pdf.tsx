@@ -9,6 +9,7 @@ import { Document, Page, StyleSheet, Text, View, renderToBuffer } from "@react-p
 import type { CellStatus, MatrixRow } from "./pack-matrix";
 import { openQuestions } from "./pack-matrix";
 import { STAGE_LABELS } from "./stage-rules";
+import { CONFLICT_DISCLOSURE } from "./pricing";
 
 export const PDF_DISCLAIMER =
   "Lodeline provides supply-chain documentation and analysis, not legal advice or government certification. This pack is an evidence compilation, not a compliance determination. Applicability, exceptions, and acceptance depend on the contract and the responsible reviewer.";
@@ -154,6 +155,7 @@ export function PackPdf({ data }: { data: PackPdfData }) {
         {STATED_LIMITS.map((l, i) => (
           <Text key={i}>• {l}</Text>
         ))}
+        <Text style={s.disclaimer}>{CONFLICT_DISCLOSURE}</Text>
         <Text style={s.disclaimer}>{PDF_DISCLAIMER}</Text>
         <Text style={s.footer} fixed render={({ pageNumber, totalPages }) => `Lodeline · ${PDF_DISCLAIMER.slice(0, 110)}… · Page ${pageNumber} of ${totalPages}`} />
       </Page>

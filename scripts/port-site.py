@@ -30,6 +30,21 @@ PAGES = {
 # (Yash, 17 Oct 2026). New platform pages live outside these files.
 PATCHES = {}
 
+# Owner-approved ADDITIONS (18 Oct 2026, docs/business-model.md). These insert
+# new elements next to existing ones; nothing on the live page is changed or
+# removed. Every added element carries data-ll-added="<reason>", and
+# app/_site/site.test.ts strips those elements before checking that the rest
+# of the page still matches lodeline.org word for word.
+#   page -> [(existing HTML to insert after, HTML to insert)]
+ADDITIONS = {
+    "home": [
+        (
+            '<a class="btn btn-lg btn-glass" href="/sample-evidence-pack">View a sample evidence pack</a>',
+            '\n        <a class="btn btn-lg btn-glass" href="/audit" data-ll-added="free-audit">Run a free parts audit</a>',
+        ),
+    ],
+}
+
 # Interactive islands, replaced by id with React components (imported per page).
 ISLANDS = {
     "quiz": ("ReadinessCheck", "../readiness-check"),
@@ -180,6 +195,10 @@ class Conv(HTMLParser):
 
 
 def patch(name, src):
+    for anchor, insert in ADDITIONS.get(name, []):
+        if src.count(anchor) != 1:
+            sys.exit(f"{name}: addition anchor not found exactly once: {anchor[:60]}")
+        src = src.replace(anchor, anchor + insert)
     return src
 
 

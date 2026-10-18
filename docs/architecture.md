@@ -44,12 +44,14 @@ src/domain: types + DomainError taxonomy (validation/auth/authorization/not_foun
 |---|---|
 | Identity | `Organization` (`roles: OrgRole[]`, buyer and/or seller), `Membership` (user ↔ org, `roles` per membership, `isOrgAdmin`), `User` (buyer/supplier/admin), `Session` (hashed token), `MagicLink` |
 | Free audit | `PartsAudit`, `AuditPart` (MPN, manufacturer, material, notes, `coverage` likely/possible/not_likely, `reason`, `classifiedBy`) |
-| Packs | `EvidencePack` (pending_payment → collecting → … → ready), `WebhookEvent` (idempotency) |
-| Suppliers and evidence | `Supplier`, `SupplierRequest` (token hash + ciphertext, TTL, reminders), `OutreachEmail`, `EvidenceDocument`, `DocumentPage`, `EvidenceClaim` (verbatim quotes, geocode, covered flag, review status) |
+| Packs | `EvidencePack` (`tier` starter/standard/custom, pending_payment → collecting → … → ready), `WebhookEvent` (idempotency) |
+| Suppliers and evidence | `Supplier`, `SupplierRequest` (belongs to a pack **or** a verification, enforced by a check constraint; token hash + ciphertext, TTL, reminders; reuse consent with name and timestamps), `OutreachEmail`, `EvidenceDocument`, `DocumentPage`, `EvidenceClaim` (verbatim quotes, geocode, covered flag, review status) |
 | Directory | `SupplierListing` (published, verifiedAt, verifiedFromDocumentIds/ClaimIds, GIN FTS index), `SupplierApplication` (pending/approved/rejected → listing) |
 | Marketing | `Lead` (readiness_call / checklist, ipHash, notifiedAt, status) |
 | Ops | `AuditEntry` (append-only), `GeocodeCache` (hits and misses), `RateLimitBucket` |
-| Referrals (stub) | `Referral`, `CommissionInvoice` |
+| Supplier verification | `SupplierVerification` (listing, facilities, tier, fee, status pending_payment → collecting → complete, review year); its documents arrive on `SupplierRequest` rows with `verificationId` instead of `packId` |
+| Refresh plans | `RefreshSubscription` (one per pack, monthly price, interval, Stripe subscription id, next due date) |
+| Referrals (unused) | `Referral`, `CommissionInvoice`; supplier commissions are switched off in `src/services/pricing.ts` |
 
 ## Security and privacy controls
 - **Sessions:** HttpOnly cookie holding a random token; the DB stores only its SHA-256. Magic links are single-use, expire after 15 minutes, and use a validated `next` path.

@@ -29,7 +29,7 @@ export class EvidenceIntakeService {
     const pre = preflightEvidenceFile(fileName, size);
     if (!pre.ok) throw new DomainError(pre.reason === "too_large" ? "payload_too_large" : "unsupported", pre.reason === "cad_file" ? "DRAWING_REJECTED" : "FILE_TYPE_UNSUPPORTED", pre.detail, "file");
     const id = randomUUID();
-    const key = `evidence/${request.packId}/${request.id}/${id}.pdf`;
+    const key = `evidence/${request.packId ?? `verification-${request.verificationId}`}/${request.id}/${id}.pdf`;
     await this.d.db.evidenceDocument.create({ data: { id, requestId: request.id, fileKey: key, fileName, mime: "application/pdf", sha256: "", sizeBytes: size, status: "requested" } });
     const put = await this.d.storage.presignPut(key, "application/pdf", size, 600);
     return { documentId: id, upload: put };

@@ -77,8 +77,6 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
-      - key: STRIPE_PRICE_PACK_STANDARD
-        sync: false # optional: a Stripe Price id; otherwise PACK_PRICE_CENTS is used
       # Abuse protection
       - key: TURNSTILE_SITE_KEY
         sync: false
@@ -90,9 +88,7 @@ services:
         generateValue: true
       - key: SUPPLIER_TOKEN_TTL_DAYS
         value: "30"
-      # Evidence pack fixed fee in cents (200000-500000). Stripe test keys outside production.
-      - key: PACK_PRICE_CENTS
-        value: "250000"
+      # Prices are set in src/services/pricing.ts (pack tiers, verification, refresh plans).
       # Marketing site (lodeline.org): lead + supplier-application notifications, inline booking
       - key: LEADS_NOTIFY_EMAIL
         value: info@lodeline.org

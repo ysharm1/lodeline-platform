@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import Stripe from "stripe";
-import { StripeBilling, packPriceCents } from "@/infra/billing";
+import { StripeBilling, sessionRef } from "@/infra/billing";
 import { normalizeEmailEvent, signSvix, verifyBasicAuth, verifySvix } from "./email-webhook";
 
 const WHSEC = "whsec_test_secret";
 
 describe("Stripe webhook signature", () => {
   const stripe = new Stripe("sk_test_dummy");
-  const billing = new StripeBilling("sk_test_dummy", WHSEC, undefined, stripe);
+  const billing = new StripeBilling("sk_test_dummy", WHSEC, stripe);
   const payload = JSON.stringify({
     id: "evt_1", object: "event", type: "checkout.session.completed", api_version: "2024-06-20", created: 1, livemode: false, pending_webhooks: 0, request: null,
     data: { object: { id: "cs_1", object: "checkout.session", payment_status: "paid", amount_total: 250000, metadata: { packId: "pack-1" }, client_reference_id: "pack-1" } },
@@ -15,7 +15,8 @@ describe("Stripe webhook signature", () => {
 
   it("accepts a correctly signed checkout.session.completed", async () => {
     const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: WHSEC });
-    expect(await billing.parseWebhook(payload, sig)).toEqual({ id: "evt_1", type: "checkout.completed", packId: "pack-1", checkoutId: "cs_1", amountCents: 250000 });
+    // An older pack session (metadata.packId only) still resolves to a pack payment.
+    expect(await billing.parseWebhook(payload, sig)).toEqual({ id: "evt_1", type: "checkout.completed", kind: "pack", refId: "pack-1", packId: "pack-1", checkoutId: "cs_1", amountCents: 250000, subscriptionId: undefined });
   });
   it("rejects a bad signature, a tampered body and a missing header", async () => {
     const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: "whsec_other" });
@@ -30,12 +31,30 @@ describe("Stripe webhook signature", () => {
   });
 });
 
-describe("pack price band", () => {
-  it("defaults to $2,500 and enforces $2k–$5k", () => {
-    expect(packPriceCents({} as NodeJS.ProcessEnv)).toBe(250000);
-    expect(packPriceCents({ PACK_PRICE_CENTS: "500000" } as unknown as NodeJS.ProcessEnv)).toBe(500000);
-    expect(() => packPriceCents({ PACK_PRICE_CENTS: "199999" } as unknown as NodeJS.ProcessEnv)).toThrow();
-    expect(() => packPriceCents({ PACK_PRICE_CENTS: "600000" } as unknown as NodeJS.ProcessEnv)).toThrow();
+describe("Stripe webhook: what was bought", () => {
+  const stripe = new Stripe("sk_test_dummy");
+  const billing = new StripeBilling("sk_test_dummy", WHSEC, stripe);
+  const event = (type: string, object: Record<string, unknown>) =>
+    JSON.stringify({ id: "evt_k", object: "event", type, api_version: "2024-06-20", created: 1, livemode: false, pending_webhooks: 0, request: null, data: { object } });
+  const parse = (p: string) => billing.parseWebhook(p, stripe.webhooks.generateTestHeaderString({ payload: p, secret: WHSEC }));
+
+  it("routes a supplier verification payment by metadata.kind", async () => {
+    const p = event("checkout.session.completed", { id: "cs_v", object: "checkout.session", payment_status: "paid", amount_total: 150000, metadata: { kind: "verification", refId: "ver-1" }, client_reference_id: "ver-1" });
+    expect(await parse(p)).toMatchObject({ type: "checkout.completed", kind: "verification", refId: "ver-1", checkoutId: "cs_v", amountCents: 150000 });
+  });
+  it("routes a refresh subscription and keeps its subscription id", async () => {
+    const p = event("checkout.session.completed", { id: "cs_r", object: "checkout.session", mode: "subscription", payment_status: "paid", amount_total: 25000, subscription: "sub_1", metadata: { kind: "refresh", refId: "ref-1" } });
+    expect(await parse(p)).toMatchObject({ type: "checkout.completed", kind: "refresh", refId: "ref-1", subscriptionId: "sub_1" });
+  });
+  it("reports a cancelled refresh subscription", async () => {
+    const p = event("customer.subscription.deleted", { id: "sub_1", object: "subscription", metadata: { kind: "refresh", refId: "ref-1" } });
+    expect(await parse(p)).toMatchObject({ type: "subscription.ended", subscriptionId: "sub_1", refId: "ref-1" });
+  });
+  it("reads old and new session metadata", () => {
+    expect(sessionRef({ packId: "p1" }, null)).toEqual({ kind: "pack", refId: "p1", packId: "p1" });
+    expect(sessionRef({ kind: "pack", refId: "p2" }, null)).toEqual({ kind: "pack", refId: "p2", packId: "p2" });
+    expect(sessionRef({ kind: "verification", refId: "v1" }, null)).toEqual({ kind: "verification", refId: "v1" });
+    expect(sessionRef({}, "p3")).toEqual({ kind: "pack", refId: "p3", packId: "p3" });
   });
 });
 
