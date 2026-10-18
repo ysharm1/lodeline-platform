@@ -10,6 +10,7 @@ import { requireAdmin } from "./authorization";
 import { toIso2 } from "./countries";
 import { directoryFiltersSchema, keywordParseDirectoryQuery, leftoverKeywords, type DirectoryFilters, type ListingForAnswer } from "./directory-query";
 import { nowOf, type PlatformDeps } from "./deps";
+import { hasActiveReuseConsent } from "./suppliers";
 
 export interface ListingRow extends ListingForAnswer {
   website: string | null;
@@ -54,6 +55,8 @@ export class DirectoryService {
              "verifiedAt", "isExample", ${rank}::float8 AS "rank"
       FROM "SupplierListing"
       ${where.length ? Prisma.sql`WHERE ${Prisma.join(where, " AND ")}` : Prisma.empty}
+      -- Order by search relevance, then verified, then name. Never by payment:
+      -- a supplier's verification fee must not affect its place (docs/business-model.md).
       ORDER BY "rank" DESC, "verifiedAt" DESC NULLS LAST, "name" ASC
       LIMIT ${opts.limit ?? 50}`;
     return rows.map((r) => ({ ...r, verified: !!r.verifiedAt, rank: Number(r.rank) }));
@@ -133,6 +136,14 @@ export class DirectoryService {
   /**
    * Verification is only possible from ACCEPTED evidence documents (each with
    * >= 1 accepted claim). Passing [] clears verification.
+   *
+   * Each document must also be one Lodeline is allowed to reuse:
+   *   - it came from this listing's own supplier verification, or
+   *   - the supplier gave reuse consent on the upload page (and has not withdrawn it).
+   * Documents collected for one buyer's pack without consent stay with that buyer.
+   *
+   * Payment plays no part here: a paid verification does not make a listing
+   * verified, and an unpaid supplier can be verified from consented evidence.
    */
   async verify(ctx: AuthContext, id: string, documentIds: unknown) {
     const admin = requireAdmin(ctx);
@@ -144,12 +155,17 @@ export class DirectoryService {
       await this.d.audit.append({ action: "listing.verified", actorUserId: admin.userId, subjectId: id, payload: { cleared: true } });
       return row;
     }
-    const docs = await this.d.db.evidenceDocument.findMany({ where: { id: { in: ids } }, include: { claims: { where: { reviewStatus: "accepted" } } } });
+    const docs = await this.d.db.evidenceDocument.findMany({
+      where: { id: { in: ids } },
+      include: { claims: { where: { reviewStatus: "accepted" } }, request: { include: { verification: { select: { listingId: true } } } } },
+    });
     const bad = ids.filter((i) => {
       const doc = docs.find((x) => x.id === i);
       return !doc || doc.status !== "accepted" || doc.claims.length === 0;
     });
     if (bad.length) throw new ValidationError("EVIDENCE_NOT_ACCEPTED", `Documents without accepted evidence: ${bad.join(", ")}`);
+    const noConsent = docs.filter((doc) => doc.request.verification?.listingId !== id && !hasActiveReuseConsent(doc.request)).map((d) => d.id);
+    if (noConsent.length) throw new ValidationError("REUSE_CONSENT_REQUIRED", `The supplier has not allowed these documents to be reused: ${noConsent.join(", ")}`);
     const row = await this.d.db.supplierListing.update({
       where: { id },
       data: { verifiedAt: nowOf(this.d), verifiedFromDocumentIds: ids, verifiedFromClaimIds: docs.flatMap((x) => x.claims.map((c) => c.id)) },

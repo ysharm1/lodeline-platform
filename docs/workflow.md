@@ -49,7 +49,8 @@ The happy path through the product, with the code that implements each step.
 
 ## 3. Paid evidence pack
 - On the results page, **Order an evidence pack** sends `POST /api/packs` (sign-in required). The magic link keeps the `next` path so the order survives sign-in.
-- `PackService.create` creates the `EvidencePack` and the buyer's `Organization` (roles `[buyer]`) with a buyer `Membership` (org admin), then opens a Stripe Checkout session.
+- The results page shows the buyer's **tier and price** before they order (`src/services/pricing.ts`): it counts the flagged parts (likely + possible) and the distinct named suppliers behind them. Up to 5 parts and 3 suppliers is **Starter** ($2,500); up to 15 parts and 8 suppliers is **Standard** ($5,000); anything larger shows **Request a quote** instead of the order button.
+- `PackService.create` picks the tier, creates the `EvidencePack` (with `tier` and `priceCents`) and the buyer's `Organization` (roles `[buyer]`) with a buyer `Membership` (org admin), then opens a Stripe Checkout session. A scope larger than Standard is refused with `QUOTE_REQUIRED` and logged as `pack.quote_required`.
 - `POST /api/webhooks/stripe` verifies the signature and calls `markPaid`, which is idempotent per event and per pack. The pack moves to `collecting`.
 - Without Stripe in dev, `DevBilling` marks the pack paid at once.
 
@@ -80,8 +81,20 @@ The happy path through the product, with the code that implements each step.
 - `GET /api/packs/[id]/pdf` renders the PDF on demand. `POST /api/admin/packs/[id]/generate` stores it and marks the pack `ready`.
 - The PDF contains the stage table, verbatim citations, facility coordinates, a document register with SHA-256 hashes, open questions, stated limits and the disclaimer.
 
-## 7. Marketplace referral (stub)
-- Where the pack shows a stage with no documented source, the plan is to introduce verified directory suppliers and track the outcome. The `Referral` and `CommissionInvoice` tables exist; the workflow and UI do not yet.
+## 7. Refresh plan (buyer pays monthly)
+- On a paid pack, **Start refresh plan** sends `POST /api/packs/[id]/refresh`. `RefreshService.start` opens Stripe Checkout in subscription mode ($250/month for Starter, $500/month for Standard; custom packs are quoted).
+- The webhook (`checkout.session.completed`, `metadata.kind = "refresh"`) activates the plan and sets the first re-check 90 days out.
+- `/admin/refresh` lists plans with due ones highlighted. After re-checking a pack, the admin clicks **Mark refreshed**, which sets the next due date 90 days out.
+- `customer.subscription.deleted` marks the plan cancelled. A cancelled plan can be restarted.
+
+## 8. Sourcing (not a flow yet)
+- Where a pack shows a stage with no documented source, Lodeline can introduce verified directory suppliers for a flat fee paid by the buyer, quoted by email.
+- Supplier-paid commissions are **off** (`SUPPLIER_COMMISSIONS_ENABLED=false` in `src/services/pricing.ts`) until a government contracts lawyer has reviewed them. `/admin/referrals` explains why. The `Referral` and `CommissionInvoice` tables stay unused.
+
+## Supplier consent to reuse documents
+- The supplier upload page (`/s/[token]`) has a box: **Send these documents once**. It is off by default. To turn it on, the supplier types their name; `POST /api/s/[token]/consent` stores `reuseConsentAt` and `reuseConsentName` on the `SupplierRequest`. Withdrawing sets `reuseConsentWithdrawnAt`. Both are in the audit log.
+- `DirectoryService.verify` only accepts documents the supplier allowed Lodeline to reuse, or that came from that listing's own paid verification (`REUSE_CONSENT_REQUIRED` otherwise). Documents collected for one buyer without consent stay with that buyer.
+- The admin review queue shows, per claim, who the documents are for and whether reuse is allowed.
 
 ## Supplier listing applications
 1. A supplier applies at `/for-suppliers` (`POST /api/supplier-applications`): honeypot, rate limit of 3 per hour, Turnstile, zod validation (stages, materials, an http(s) website, a known country).
@@ -90,3 +103,10 @@ The happy path through the product, with the code that implements each step.
    - **Approve** creates a `SupplierListing` with `published=false` and `verifiedAt=null`, linked to the application.
    - **Reject** records a note.
 4. To verify, the admin requests documents, reviews them, then verifies the listing from the accepted documents and publishes it at `/admin/suppliers`.
+
+## Supplier verification (supplier pays)
+1. At `/admin/verifications`, the admin picks a listing, the supplier's email and the number of facilities, and clicks **Start verification and email payment link** (`POST /api/admin/listings/[id]/verification`). Fee: $1,500/year for 1 facility, $3,000 for 2–3, $5,000 for 4–8; more than 8 is quoted.
+2. The supplier pays through Stripe Checkout. The webhook (`metadata.kind = "verification"`) calls `VerificationService.markPaid`: the verification moves to `collecting`, the review year starts, and a `SupplierRequest` with **no pack** (`verificationId` set) is created and emailed. It asks about the upstream stages the listing covers and its link lasts 60 days.
+3. The supplier uploads through the same `/s/[token]` portal. Claims go through the same review queue.
+4. If the accepted evidence supports it, the admin verifies the listing at `/admin/suppliers` (a separate step). **Payment never sets `verifiedAt`.** A unit test fails if the verification service ever writes it.
+5. The admin clicks **Mark review complete** on `/admin/verifications`, whatever the review found. An unpaid verification can be cancelled; a paid one cannot (refund in Stripe if needed).

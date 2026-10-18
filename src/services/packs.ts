@@ -1,11 +1,15 @@
 /**
  * Evidence packs: create from a free audit (buyer must hold the audit link
  * token), Stripe Checkout, webhook-driven payment, buyer view data.
+ *
+ * Pricing (src/services/pricing.ts): the tier is picked from the audit's
+ * scope when the pack is ordered. Starter and Standard are sold through
+ * checkout; a scope larger than Standard needs a quote from the team.
  */
 import type { Prisma } from "@prisma/client";
 import { AuthorizationError, ConflictError, NotFoundError, ValidationError } from "@/domain/errors";
 import type { AuthContext, Material, Stage } from "@/domain/types";
-import { packPriceCents } from "@/infra/billing";
+import { packTier, scopeOfParts, tierForScope, usd } from "./pricing";
 import { hashSessionToken } from "@/session/store";
 import { buildPackMatrix, type MatrixClaim } from "./pack-matrix";
 import { nowOf, type PlatformDeps } from "./deps";
@@ -26,17 +30,26 @@ export class PackService {
   async create(ctx: AuthContext, input: { auditId: unknown; accessToken: unknown }) {
     if (ctx.role !== "buyer" && ctx.role !== "admin") throw new AuthorizationError("ROLE_FORBIDDEN", "Only buyers can order evidence packs.");
     if (typeof input.auditId !== "string" || typeof input.accessToken !== "string") throw new ValidationError("AUDIT_REQUIRED", "auditId and accessToken are required.");
-    const audit = await this.d.db.partsAudit.findUnique({ where: { id: input.auditId }, include: { pack: true } });
+    const audit = await this.d.db.partsAudit.findUnique({ where: { id: input.auditId }, include: { pack: true, parts: { select: { coverage: true, supplierName: true } } } });
     if (!audit || audit.accessTokenHash !== hashSessionToken(input.accessToken)) throw new NotFoundError("AUDIT_NOT_FOUND", "Audit not found.");
     if (audit.status !== "classified") throw new ConflictError("AUDIT_NOT_READY", "The audit has not finished.");
+
+    // Pick the smallest tier that fits the parts and suppliers in this audit.
+    const tier = tierForScope(scopeOfParts(audit.parts));
+    if (tier.priceCents === null && !audit.pack) {
+      await this.d.audit.append({ action: "pack.quote_required", actorUserId: ctx.userId, subjectId: audit.id, payload: scopeOfParts(audit.parts) });
+      throw new ConflictError(
+        "QUOTE_REQUIRED",
+        `This parts list is larger than the Standard pack (${packTier("standard").maxParts} parts, ${packTier("standard").maxSuppliers} suppliers). Request a readiness call and we will send a fixed quote.`
+      );
+    }
 
     const orgId = await this.orgFor(ctx, audit.companyName);
     const existing = audit.pack;
     if (existing && existing.orgId !== orgId) throw new ConflictError("PACK_EXISTS", "A pack already exists for this audit.");
-    const priceCents = this.d.packPriceCents ?? packPriceCents();
     const pack =
       existing ??
-      (await this.d.db.evidencePack.create({ data: { auditId: audit.id, orgId, priceCents, status: "pending_payment", createdById: ctx.userId } }));
+      (await this.d.db.evidencePack.create({ data: { auditId: audit.id, orgId, tier: tier.id, priceCents: tier.priceCents!, status: "pending_payment", createdById: ctx.userId } }));
     if (!audit.orgId) await this.d.db.partsAudit.update({ where: { id: audit.id }, data: { orgId } });
     if (pack.paidAt) return { packId: pack.id, checkoutUrl: `${this.d.baseUrl}/buyer/packs/${pack.id}` };
 
@@ -50,17 +63,19 @@ export class PackService {
     return this.startCheckout(ctx, pack);
   }
 
-  private async startCheckout(ctx: AuthContext, pack: { id: string; priceCents: number }) {
+  private async startCheckout(ctx: AuthContext, pack: { id: string; priceCents: number; tier: string }) {
     const base = this.d.baseUrl.replace(/\/$/, "");
     const checkout = await this.d.billing.createCheckout({
-      packId: pack.id,
+      kind: "pack",
+      refId: pack.id,
       priceCents: pack.priceCents,
+      productName: `Lodeline evidence pack: ${packTier(pack.tier as "starter").label} (${usd(pack.priceCents)} fixed fee)`,
       customerEmail: ctx.email,
       successUrl: `${base}/buyer/packs/${pack.id}?paid=1`,
       cancelUrl: `${base}/buyer/packs/${pack.id}?cancelled=1`,
     });
     await this.d.db.evidencePack.update({ where: { id: pack.id }, data: { stripeCheckoutId: checkout.id } });
-    await this.d.audit.append({ action: "pack.checkout_started", actorUserId: ctx.userId, subjectId: pack.id, payload: { checkoutId: checkout.id, priceCents: pack.priceCents, mode: this.d.billing.mode } });
+    await this.d.audit.append({ action: "pack.checkout_started", actorUserId: ctx.userId, subjectId: pack.id, payload: { checkoutId: checkout.id, tier: pack.tier, priceCents: pack.priceCents, mode: this.d.billing.mode } });
     if (this.d.billing.mode === "dev") await this.markPaid(pack.id, checkout.id, pack.priceCents, `dev:${pack.id}:${checkout.id}`);
     return { packId: pack.id, checkoutUrl: checkout.url };
   }

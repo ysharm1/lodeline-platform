@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { container } from "@/composition/root";
 import { isDomainError } from "@/domain/errors";
 import { MATERIAL_LABELS, STAGE_LABELS } from "@/services/stage-rules";
+import { scopeOfParts, tierForScope, usd } from "@/services/pricing";
 import { Disclaimer } from "../../_components/disclaimer";
 import { ActionButton } from "../../_components/action-button";
 
@@ -27,6 +28,9 @@ export default async function AuditResults({
   const likely = parts.filter((p) => p.coverage === "likely");
   const possible = parts.filter((p) => p.coverage === "possible");
   const notLikely = parts.filter((p) => p.coverage === "not_likely");
+  // The pack tier and price follow from this audit's scope (src/services/pricing.ts).
+  const scope = scopeOfParts(parts);
+  const tier = tierForScope(scope);
   return (
     <div className="space-y-8">
       {demo === "1" ? (
@@ -67,8 +71,24 @@ export default async function AuditResults({
           We request origin documents from your suppliers, match each to a stage, and hand over a pack with gaps and next
           questions. Fixed fee, paid by card through Stripe.
         </p>
-        {audit.status === "classified" && summary.flagged > 0 ? (
-          <ActionButton url="/api/packs" body={{ auditId: audit.id, accessToken: t }} label="Order an evidence pack" />
+        {summary.flagged > 0 ? (
+          <p className="text-sm">
+            Your scope: <strong>{scope.parts} part{scope.parts === 1 ? "" : "s"}</strong> to document
+            {scope.suppliers ? <> from <strong>{scope.suppliers} named supplier{scope.suppliers === 1 ? "" : "s"}</strong></> : null}.{" "}
+            {tier.priceCents === null ? (
+              <>That is larger than our Standard pack, so we price it as a fixed quote.</>
+            ) : (
+              <>
+                That fits the <strong>{tier.label}</strong> pack: <strong>{usd(tier.priceCents)}</strong>, covering up to {tier.maxParts} parts and {tier.maxSuppliers} suppliers.
+              </>
+            )}
+          </p>
+        ) : null}
+        {audit.status === "classified" && summary.flagged > 0 && tier.priceCents !== null ? (
+          <ActionButton url="/api/packs" body={{ auditId: audit.id, accessToken: t }} label={`Order the ${tier.label} pack (${usd(tier.priceCents)})`} />
+        ) : null}
+        {audit.status === "classified" && summary.flagged > 0 && tier.priceCents === null ? (
+          <a href="/#contact" className="inline-block rounded bg-accent text-ink px-3 py-1.5 text-sm font-medium">Request a quote</a>
         ) : null}
       </section>
       <Disclaimer />

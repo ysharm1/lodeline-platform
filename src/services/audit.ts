@@ -40,6 +40,20 @@ export const AUDIT_ACTIONS = [
   "supplier_application.submitted",
   "supplier_application.approved",
   "supplier_application.rejected",
+  // Business model update (docs/business-model.md)
+  "pack.quote_required",
+  "supplier.reuse_consent_given",
+  "supplier.reuse_consent_withdrawn",
+  "supplier.verification_request_created",
+  "verification.created",
+  "verification.checkout_started",
+  "verification.paid",
+  "verification.completed",
+  "verification.cancelled",
+  "refresh.checkout_started",
+  "refresh.activated",
+  "refresh.completed",
+  "refresh.cancelled",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

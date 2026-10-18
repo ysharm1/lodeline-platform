@@ -17,7 +17,7 @@ describe("Postgres smoke", () => {
   it("migrations applied: every model table exists", async () => {
     const rows = await db.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname='public'`;
     const names = rows.map((r) => r.tablename);
-    for (const t of ["PartsAudit", "AuditPart", "EvidencePack", "Supplier", "SupplierRequest", "OutreachEmail", "EvidenceDocument", "EvidenceClaim", "SupplierListing", "Referral", "CommissionInvoice", "MagicLink", "User", "Session", "AuditEntry", "DocumentPage", "GeocodeCache", "RateLimitBucket", "Membership"]) {
+    for (const t of ["PartsAudit", "AuditPart", "EvidencePack", "Supplier", "SupplierRequest", "OutreachEmail", "EvidenceDocument", "EvidenceClaim", "SupplierListing", "Referral", "CommissionInvoice", "MagicLink", "User", "Session", "AuditEntry", "DocumentPage", "GeocodeCache", "RateLimitBucket", "Membership", "SupplierVerification", "RefreshSubscription"]) {
       expect(names).toContain(t);
     }
   });

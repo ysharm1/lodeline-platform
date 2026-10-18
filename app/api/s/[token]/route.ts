@@ -7,9 +7,11 @@ export const dynamic = "force-dynamic";
 
 export const GET = route(async (_req: Request, { params }: { params: Promise<{ token: string }> }) => {
   const { token } = await params;
-  const { request, parts, buyerName } = await container().platform().suppliers.resolveToken(token);
+  const { request, parts, buyerName, purpose, reuseConsent } = await container().platform().suppliers.resolveToken(token);
   return json({
     buyerName,
+    purpose,
+    reuseConsent,
     supplierName: request.supplier.name,
     stagesRequested: request.stagesRequested,
     expiresAt: request.tokenExpiresAt,

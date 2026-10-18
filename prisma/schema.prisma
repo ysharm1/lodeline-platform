@@ -60,6 +60,13 @@ enum EvidenceStatus {
   rejected
 }
 
+/// Evidence pack price tier (see src/services/pricing.ts).
+enum PackTierLevel {
+  starter
+  standard
+  custom
+}
+
 enum PackStatus {
   draft
   pending_payment
@@ -206,6 +213,8 @@ model EvidencePack {
   status           PackStatus        @default(draft)
   org              Organization      @relation(fields: [orgId], references: [id])
   createdById      String?
+  /// Tier chosen from the audit's scope when the pack was ordered.
+  tier             PackTierLevel     @default(starter)
   priceCents       Int
   stripeCheckoutId String?
   paidAt           DateTime?
@@ -213,6 +222,7 @@ model EvidencePack {
   generatedAt      DateTime?
   createdAt        DateTime          @default(now())
   requests         SupplierRequest[]
+  refresh          RefreshSubscription?
 }
 
 model Supplier {
@@ -225,10 +235,14 @@ model Supplier {
   requests     SupplierRequest[]
 }
 
+/// A request for documents from one supplier. It belongs to EITHER a buyer's
+/// evidence pack (packId) OR a supplier-paid verification (verificationId).
 model SupplierRequest {
   id              String             @id @default(uuid())
-  packId          String
-  pack            EvidencePack       @relation(fields: [packId], references: [id])
+  packId          String?
+  pack            EvidencePack?      @relation(fields: [packId], references: [id])
+  verificationId  String?
+  verification    SupplierVerification? @relation(fields: [verificationId], references: [id], onDelete: Restrict)
   supplierId      String
   supplier        Supplier           @relation(fields: [supplierId], references: [id])
   partIds         String[]
@@ -245,8 +259,16 @@ model SupplierRequest {
   nextReminderAt  DateTime?
   documents       EvidenceDocument[]
   emails          OutreachEmail[]
+  /// Supplier's permission to keep the reviewed documents from this request on
+  /// file and reuse them for the supplier's other customers. Null = no consent.
+  reuseConsentAt          DateTime?
+  /// Name the supplier typed when giving consent.
+  reuseConsentName        String?
+  /// Set when the supplier withdraws consent; reuse stops from that moment.
+  reuseConsentWithdrawnAt DateTime?
 
   @@index([nextReminderAt])
+  @@index([verificationId])
 }
 
 model OutreachEmail {
@@ -342,6 +364,71 @@ model SupplierListing {
   published               Boolean       @default(false)
   referrals               Referral[]
   application             SupplierApplication?
+  verifications           SupplierVerification[]
+}
+
+enum VerificationStatus {
+  pending_payment
+  collecting
+  complete
+  cancelled
+}
+
+/// A supplier-paid annual review of the supplier's own upstream evidence.
+/// The fee is the same whatever the review finds. Payment never sets
+/// SupplierListing.verifiedAt; only DirectoryService.verify does, from
+/// accepted evidence.
+model SupplierVerification {
+  id               String             @id @default(uuid())
+  listingId        String
+  listing          SupplierListing    @relation(fields: [listingId], references: [id])
+  contactEmail     String
+  contactName      String?
+  facilities       Int
+  /// single | multi | network (src/services/pricing.ts)
+  tier             String
+  priceCents       Int
+  status           VerificationStatus @default(pending_payment)
+  stripeCheckoutId String?
+  checkoutUrl      String?
+  paidAt           DateTime?
+  /// End of the paid review year.
+  periodEndsAt     DateTime?
+  completedAt      DateTime?
+  completedNote    String?
+  createdById      String?
+  createdAt        DateTime           @default(now())
+  requests         SupplierRequest[]
+
+  @@index([listingId])
+}
+
+enum RefreshStatus {
+  pending
+  active
+  cancelled
+}
+
+/// A buyer's monthly plan to keep one evidence pack current.
+model RefreshSubscription {
+  id                   String        @id @default(uuid())
+  packId               String        @unique
+  pack                 EvidencePack  @relation(fields: [packId], references: [id])
+  orgId                String
+  tier                 PackTierLevel
+  monthlyCents         Int
+  intervalDays         Int
+  status               RefreshStatus @default(pending)
+  stripeCheckoutId     String?
+  stripeSubscriptionId String?       @unique
+  startedAt            DateTime?
+  nextRefreshDueAt     DateTime?
+  lastRefreshedAt      DateTime?
+  cancelledAt          DateTime?
+  createdById          String?
+  createdAt            DateTime      @default(now())
+
+  @@index([status, nextRefreshDueAt])
 }
 
 model Referral {

@@ -20,7 +20,7 @@ import { MagicLinkService } from "@/services/magic-link";
 import type { EmailSender } from "@/services/notifications";
 import { LocalDiskStorage, type DocumentStorage } from "@/services/storage";
 import { DomainError } from "@/domain/errors";
-import { billingFromEnv, packPriceCents } from "@/infra/billing";
+import { billingFromEnv } from "@/infra/billing";
 import type { PlatformDeps } from "@/services/deps";
 import { PackService } from "@/services/packs";
 import { SupplierService } from "@/services/suppliers";
@@ -29,6 +29,8 @@ import { ReviewService } from "@/services/review";
 import { DirectoryService } from "@/services/directory";
 import { LeadService } from "@/services/leads";
 import { SupplierApplicationService } from "@/services/supplier-applications";
+import { VerificationService } from "@/services/verifications";
+import { RefreshService } from "@/services/refresh";
 import { geocoderFromEnv } from "@/services/geocoder";
 import { PrismaSessionStore } from "@/session/prisma-store";
 import { InMemorySessionStore, type SessionStore } from "@/session/store";
@@ -42,6 +44,10 @@ export interface Platform {
   directory: DirectoryService;
   leads: LeadService;
   applications: SupplierApplicationService;
+  /** Supplier-paid annual evidence review. */
+  verifications: VerificationService;
+  /** Buyer-paid monthly plan to keep a pack current. */
+  refresh: RefreshService;
 }
 
 export interface Container {
@@ -116,11 +122,21 @@ function build(): Container {
         llm,
         geocoder: geocoderFromEnv(db),
         baseUrl,
-        packPriceCents: packPriceCents(),
       };
       const packs = new PackService(deps);
       const suppliers = new SupplierService(deps, packs);
-      platform = { deps, packs, suppliers, intake: new EvidenceIntakeService(deps, suppliers), review: new ReviewService(deps), directory: new DirectoryService(deps), leads: new LeadService(deps), applications: new SupplierApplicationService(deps) };
+      platform = {
+        deps,
+        packs,
+        suppliers,
+        intake: new EvidenceIntakeService(deps, suppliers),
+        review: new ReviewService(deps),
+        directory: new DirectoryService(deps),
+        leads: new LeadService(deps),
+        applications: new SupplierApplicationService(deps),
+        verifications: new VerificationService(deps, suppliers),
+        refresh: new RefreshService(deps, packs),
+      };
       return platform;
     },
     email,

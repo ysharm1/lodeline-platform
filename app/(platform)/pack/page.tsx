@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { getAuthContext } from "@/http/auth-context";
-import { packPriceCents } from "@/infra/billing";
+import { PACK_TIERS, REFRESH_PLANS, usd } from "@/services/pricing";
 import { Disclaimer } from "../_components/disclaimer";
+import { ConflictDisclosure } from "../_components/conflict-disclosure";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
   title: "Get the evidence pack",
-  description: "A fixed-fee, stage-by-stage evidence pack for the parts your free audit flags. Paid by card through Stripe.",
+  description: "A fixed-fee, stage-by-stage evidence pack for the parts your free audit flags. Starter and Standard tiers, paid by card through Stripe.",
   alternates: { canonical: "/pack" },
 };
 
@@ -20,11 +21,12 @@ const INCLUDED = [
 
 export default async function PackPage() {
   const ctx = await getAuthContext();
-  const price = (packPriceCents() / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const starter = PACK_TIERS.find((t) => t.id === "starter")!;
+  const price = `from ${usd(starter.priceCents!)}`;
   return (
     <div className="space-y-8 max-w-3xl">
       <header className="space-y-3">
-        <p className="font-mono text-xs uppercase tracking-widest text-accent">Evidence pack · {price} fixed fee</p>
+        <p className="font-mono text-xs uppercase tracking-widest text-accent">Evidence pack · {price}, fixed fee</p>
         <h1 className="text-4xl font-semibold tracking-tight">Get the evidence pack.</h1>
         <p className="text-muted">
           A pack starts from a free parts audit. Run the audit on your parts list, then choose <b>Order an evidence pack</b> on the results page. You
@@ -48,11 +50,34 @@ export default async function PackPage() {
           {ctx ? <Link href="/buyer/packs" className="text-sm underline">Go to my evidence packs</Link> : <Link href="/login?next=/buyer/packs" className="text-sm underline">Sign in</Link>}
         </li>
       </ol>
+      <section className="space-y-3">
+        <h2 className="font-semibold">Pricing</h2>
+        <p className="text-sm text-muted">
+          The tier is set by your free audit: the number of parts it flags (likely covered or to confirm) and the suppliers behind them. You see the tier
+          and price on your results page before you pay.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {PACK_TIERS.map((t) => (
+            <div key={t.id} className="rounded border border-line bg-ink-2 p-4 space-y-1">
+              <p className="font-medium">{t.label}</p>
+              <p className="text-2xl font-semibold">{t.priceCents === null ? "Quoted" : usd(t.priceCents)}</p>
+              <p className="text-sm text-muted">
+                {Number.isFinite(t.maxParts) ? `Up to ${t.maxParts} parts and ${t.maxSuppliers} suppliers` : "More parts or suppliers than Standard"}
+              </p>
+            </div>
+          ))}
+        </div>
+        <p className="text-sm text-muted">
+          Keep a pack current with a refresh plan: {REFRESH_PLANS.map((p) => `${usd(p.monthlyCents)}/month for ${p.tier === "starter" ? "Starter" : "Standard"}`).join(", ")}.
+          We re-check your suppliers&apos; documents every quarter. Cancel any time.
+        </p>
+      </section>
       <section className="space-y-2">
         <h2 className="font-semibold">What is included</h2>
         <ul className="list-disc pl-5 text-sm text-muted space-y-1">{INCLUDED.map((x) => <li key={x}>{x}</li>)}</ul>
         <p className="text-sm">See the format: <a href="/sample-evidence-pack" className="underline">sample evidence pack</a>. Need a larger scope? <a href="/#contact" className="underline">Request a readiness call</a> or call Yash Sharma at <a href="tel:+16023159861" className="underline">(602) 315-9861</a>.</p>
       </section>
+      <ConflictDisclosure />
       <Disclaimer />
     </div>
   );

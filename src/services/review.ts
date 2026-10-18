@@ -28,7 +28,7 @@ export class ReviewService {
       where: { reviewStatus: "in_review" },
       orderBy: { document: { uploadedAt: "asc" } },
       take: 100,
-      include: { document: { include: { request: { include: { supplier: true, pack: { include: { org: true } } } } } } },
+      include: { document: { include: { request: { include: { supplier: true, pack: { include: { org: true } }, verification: { include: { listing: { select: { name: true } } } } } } } } },
     });
     const docsNeedingManual = await this.d.db.evidenceDocument.findMany({
       where: { status: "in_review", claims: { none: {} } },

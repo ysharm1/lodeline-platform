@@ -17,6 +17,5 @@ export interface PlatformDeps {
   baseUrl: string;
   now?: () => Date;
   supplierTokenTtlDays?: number;
-  packPriceCents?: number;
 }
 export const nowOf = (d: PlatformDeps) => (d.now ? d.now() : new Date());
