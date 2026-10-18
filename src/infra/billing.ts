@@ -128,8 +128,21 @@ export class DevBilling implements Billing {
   }
 }
 
+/**
+ * STRIPE_API_BASE (dev/e2e only) points the official Stripe SDK at a local
+ * stand-in API (e.g. stripe-mock or the e2e harness), so the real Checkout and
+ * signed-webhook code paths run without a Stripe account. Refused in production.
+ */
+export function stripeClientFromEnv(env: NodeJS.ProcessEnv = process.env): Stripe | undefined {
+  const base = env.STRIPE_API_BASE?.trim();
+  if (!base) return undefined;
+  if (env.NODE_ENV === "production") throw new Error("STRIPE_API_BASE is for local development only");
+  const u = new URL(base);
+  return new Stripe(env.STRIPE_SECRET_KEY!, { host: u.hostname, port: Number(u.port || (u.protocol === "https:" ? 443 : 80)), protocol: u.protocol.replace(":", "") as "http" | "https", maxNetworkRetries: 0 });
+}
+
 export function billingFromEnv(env: NodeJS.ProcessEnv = process.env): Billing {
-  if (env.STRIPE_SECRET_KEY) return new StripeBilling(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET);
+  if (env.STRIPE_SECRET_KEY) return new StripeBilling(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET, stripeClientFromEnv(env));
   if (env.NODE_ENV === "production" && env.ALLOW_DEV_ADAPTERS !== "true") throw new Error("STRIPE_SECRET_KEY is required in production");
   return new DevBilling();
 }

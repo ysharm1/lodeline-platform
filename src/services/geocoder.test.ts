@@ -50,3 +50,17 @@ describe("Nominatim adapter", () => {
     expect(sleeps).toEqual([1100, 1100]);
   });
 });
+
+import { CountryCentroidGeocoder, listingPosition, NullGeocoder } from "./geocoder";
+describe("offline country-centroid geocoder and listing positions", () => {
+  it("resolves the country at the end of the query, approximately", async () => {
+    const g = new CountryCentroidGeocoder();
+    expect(await g.geocode("88 Example Road, Baotou, China")).toMatchObject({ countryIso: "CN" });
+    expect(await g.geocode("100 Example Ave, Pittsburgh, PA, USA")).toMatchObject({ countryIso: "US" });
+    expect(await g.geocode("Somewhere without a country")).toBeNull();
+  });
+  it("listing position falls back to the country centre when the geocoder finds nothing", async () => {
+    expect(await listingPosition(new NullGeocoder(), "Nowhere", "JP")).toMatchObject({ geocodeProvider: "country-centroid", latitude: 36.2 });
+    expect(await listingPosition(new NullGeocoder(), null, null)).toEqual({ latitude: null, longitude: null, geocodeProvider: null });
+  });
+});

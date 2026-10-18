@@ -1,9 +1,13 @@
 /**
  * EmailSender adapters, selected by EMAIL_PROVIDER:
  *   console  (default) logs recipient + subject + body to stdout (dev only)
+ *   file      appends each message as one JSON line to EMAIL_OUTBOX_FILE (dev/e2e only;
+ *             nothing leaves the machine). Refused in production.
  *   postmark  POSTMARK_SERVER_TOKEN   (HTTP API, implemented, untested live)
  *   resend    RESEND_API_KEY           (HTTP API, implemented, untested live)
  */
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import type { EmailMessage, EmailSendResult, EmailSender } from "@/services/notifications";
 
 export class ConsoleEmailSender implements EmailSender {
@@ -13,6 +17,18 @@ export class ConsoleEmailSender implements EmailSender {
   async send(m: EmailMessage): Promise<EmailSendResult> {
     this.sent.push(m);
     if (!this.quiet) console.info(`[email:console] to=${m.to} subject=${m.subject}\n${m.text}`);
+    return { providerMessageId: null };
+  }
+}
+
+/** Dev/e2e outbox: one JSON object per line. Never sends anything. */
+export class FileEmailSender implements EmailSender {
+  readonly name = "file";
+  constructor(private readonly path: string) {
+    mkdirSync(dirname(path), { recursive: true });
+  }
+  async send(m: EmailMessage): Promise<EmailSendResult> {
+    appendFileSync(this.path, JSON.stringify({ at: new Date().toISOString(), to: m.to, subject: m.subject, text: m.text }) + "\n");
     return { providerMessageId: null };
   }
 }
@@ -57,6 +73,10 @@ export function emailSenderFromEnv(env: NodeJS.ProcessEnv = process.env): EmailS
   if (provider === "resend") {
     if (!env.RESEND_API_KEY) throw new Error("EMAIL_PROVIDER=resend requires RESEND_API_KEY");
     return new ResendEmailSender(env.RESEND_API_KEY, from);
+  }
+  if (provider === "file") {
+    if (env.NODE_ENV === "production") throw new Error("EMAIL_PROVIDER=file is for local development only");
+    return new FileEmailSender(env.EMAIL_OUTBOX_FILE ?? ".outbox/emails.jsonl");
   }
   if (env.NODE_ENV === "production" && env.ALLOW_CONSOLE_EMAIL !== "true") {
     throw new Error("EMAIL_PROVIDER must be postmark or resend in production");

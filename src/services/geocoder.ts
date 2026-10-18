@@ -4,8 +4,11 @@
  *    User-Agent with contact (GEOCODER_USER_AGENT), max 1 request/second,
  *    results cached (we never re-ask for the same address).
  *  GEOCODER=mapbox: MAPBOX_TOKEN required.
+ *  GEOCODER=country: offline, approximate. Resolves the country named at the
+ *    end of the query to that country's centroid (dev/e2e map pins; no network).
  *  GEOCODER=none: offline (tests/dev).
  */
+import { toIso2 } from "./countries";
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 
@@ -29,6 +32,43 @@ export class NullGeocoder implements Geocoder {
   async geocode(): Promise<GeocodeResult | null> {
     return null;
   }
+}
+
+/** Approximate country centroids (lat, lng) for the offline geocoder. */
+export const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
+  US: [39.8, -98.6], CA: [56.1, -106.3], MX: [23.6, -102.6], JP: [36.2, 138.3], DE: [51.2, 10.4], FR: [46.2, 2.2], GB: [55.4, -3.4],
+  AU: [-25.3, 133.8], VN: [14.1, 108.3], MY: [4.2, 102.0], TH: [15.9, 100.99], IN: [20.6, 78.96], EE: [58.6, 25.0], BR: [-14.2, -51.9],
+  TW: [23.7, 121.0], PH: [12.9, 121.8], ID: [-0.8, 113.9], KR: [35.9, 127.8], AT: [47.5, 14.6], SE: [60.1, 18.6], FI: [61.9, 25.7],
+  NO: [60.5, 8.5], NL: [52.1, 5.3], BE: [50.5, 4.5], ES: [40.5, -3.7], PT: [39.4, -8.2], IT: [41.9, 12.6], PL: [51.9, 19.1], CZ: [49.8, 15.5],
+  CH: [46.8, 8.2], IL: [31.0, 34.9], SG: [1.35, 103.8], ZA: [-30.6, 22.9], RW: [-1.9, 29.9], CD: [-4.0, 21.8], KZ: [48.0, 66.9],
+  MN: [46.9, 103.8], BO: [-16.3, -63.6], CL: [-35.7, -71.5], PE: [-9.2, -75.0], CN: [35.9, 104.2], RU: [61.5, 105.3], IR: [32.4, 53.7],
+  KP: [40.3, 127.5], HK: [22.3, 114.2], MM: [21.9, 95.96], LA: [19.9, 102.5],
+};
+
+export class CountryCentroidGeocoder implements Geocoder {
+  readonly provider = "country-centroid";
+  async geocode(query: string): Promise<GeocodeResult | null> {
+    const parts = query.split(",").map((x) => x.trim()).filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const iso = toIso2(parts[i]);
+      const c = iso ? COUNTRY_CENTROIDS[iso] : undefined;
+      if (iso && c) return { latitude: c[0], longitude: c[1], countryIso: iso, displayName: `${iso} (country centroid, approximate)` };
+    }
+    return null;
+  }
+}
+
+/**
+ * Map position for a directory listing: geocode "city, country"; if that finds
+ * nothing (or the geocoder is off), fall back to the country centroid so the
+ * listing still shows on the map, marked approximate by the provider name.
+ */
+export async function listingPosition(geocoder: Geocoder, city: string | null, countryIso: string | null): Promise<{ latitude: number | null; longitude: number | null; geocodeProvider: string | null }> {
+  const q = [city, countryIso].filter(Boolean).join(", ");
+  const geo = q ? await geocoder.geocode(q).catch(() => null) : null;
+  if (geo) return { latitude: geo.latitude, longitude: geo.longitude, geocodeProvider: geocoder.provider };
+  const c = countryIso ? COUNTRY_CENTROIDS[countryIso.toUpperCase()] : undefined;
+  return c ? { latitude: c[0], longitude: c[1], geocodeProvider: "country-centroid" } : { latitude: null, longitude: null, geocodeProvider: null };
 }
 
 /** Serialises calls so at most one request starts per `minIntervalMs`. */
@@ -157,6 +197,8 @@ export function geocoderFromEnv(db: PrismaClient | null, env: NodeJS.ProcessEnv 
     inner = new MapboxGeocoder(env.MAPBOX_TOKEN);
   } else if (kind === "nominatim") {
     inner = new NominatimGeocoder(env.GEOCODER_USER_AGENT ?? "Lodeline/0.2 (info@lodeline.org)", fetch, (sharedThrottle ??= new Throttle(1100)), env.NOMINATIM_BASE_URL);
+  } else if (kind === "country") {
+    inner = new CountryCentroidGeocoder();
   } else {
     inner = new NullGeocoder();
   }
