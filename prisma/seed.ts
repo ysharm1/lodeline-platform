@@ -3,6 +3,7 @@
  * No real companies and no claims about real companies.
  */
 import { PrismaClient } from "@prisma/client";
+import { COUNTRY_CENTROIDS } from "../src/services/geocoder";
 
 const db = new PrismaClient();
 
@@ -18,7 +19,11 @@ async function main() {
   if (admin) await db.user.upsert({ where: { email: admin }, create: { email: admin, role: "admin" }, update: { role: "admin" } });
   for (const e of EXAMPLES) {
     const exists = await db.supplierListing.findFirst({ where: { name: e.name } });
-    if (!exists) await db.supplierListing.create({ data: { ...e, stages: [...e.stages], materials: [...e.materials], countries: [e.countryIso], published: true, isExample: true } });
+    // Fictional cities: pin at the country centre (approximate) so the directory map has points.
+    const [latitude, longitude] = COUNTRY_CENTROIDS[e.countryIso];
+    const position = { latitude, longitude, geocodeProvider: "country-centroid" };
+    if (!exists) await db.supplierListing.create({ data: { ...e, ...position, stages: [...e.stages], materials: [...e.materials], countries: [e.countryIso], published: true, isExample: true } });
+    else if (exists.latitude == null) await db.supplierListing.update({ where: { id: exists.id }, data: position });
   }
   console.log(`Seeded ${EXAMPLES.length} example listings${admin ? ` and admin ${admin}` : ""}.`);
 }

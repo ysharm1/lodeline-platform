@@ -170,6 +170,12 @@ model PartsAudit {
   llmModel        String?
   promptVersion   String?
   accessTokenHash String?       @unique
+  /// Custom-tier quote set by Lodeline staff for an audit larger than Standard.
+  /// When set, the buyer can order a Custom pack at this fixed price.
+  quotedPriceCents   Int?
+  quotedMaxSuppliers Int?
+  quotedAt           DateTime?
+  quotedById         String?
   createdAt       DateTime      @default(now())
   parts           AuditPart[]
   pack            EvidencePack?
@@ -220,6 +226,8 @@ model EvidencePack {
   paidAt           DateTime?
   pdfFileKey       String?
   generatedAt      DateTime?
+  /// Set when staff release the reviewed pack to the buyer (status delivered).
+  releasedAt       DateTime?
   createdAt        DateTime          @default(now())
   requests         SupplierRequest[]
   refresh          RefreshSubscription?
@@ -266,8 +274,14 @@ model SupplierRequest {
   reuseConsentName        String?
   /// Set when the supplier withdraws consent; reuse stops from that moment.
   reuseConsentWithdrawnAt DateTime?
+  /// Set when a supplier forwarded some of its stages to its own upstream
+  /// supplier from the portal; the child request carries those stages.
+  parentRequestId String?
+  parent          SupplierRequest?  @relation("ForwardedRequests", fields: [parentRequestId], references: [id])
+  forwarded       SupplierRequest[] @relation("ForwardedRequests")
 
   @@index([nextReminderAt])
+  @@index([parentRequestId])
   @@index([verificationId])
 }
 
@@ -294,6 +308,8 @@ model EvidenceDocument {
   status          EvidenceStatus  @default(uploaded)
   rejectionReason String?
   sizeBytes       Int?
+  /// Stage the supplier said the document covers (per-stage upload form). A hint for the reviewer, not a claim.
+  declaredStage   Stage?
   pages           DocumentPage[]
   textExtracted   Boolean         @default(false)
   uploadedAt      DateTime        @default(now())
@@ -321,6 +337,9 @@ model EvidenceClaim {
   material        Material?
   citations       Json // [{page, quote}] required per field
   llmConfidence   Float?
+  /// Deterministic 0..1 score: share of key fields backed by a verbatim quote,
+  /// minus penalties (src/services/claim-confidence.ts).
+  confidence      Float?
   reviewStatus    EvidenceStatus   @default(in_review)
   reviewedById    String?
   reviewedAt      DateTime?
@@ -352,6 +371,10 @@ model SupplierListing {
   website                 String?
   city                    String?
   countryIso              String?
+  /// Map position for the directory (geocoded from city + country).
+  latitude                Float?
+  longitude               Float?
+  geocodeProvider         String?
   isExample               Boolean       @default(false)
   verifiedFromDocumentIds String[]
   createdAt               DateTime      @default(now())

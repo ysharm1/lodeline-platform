@@ -76,6 +76,9 @@ export interface PartsAuditRecord {
   llmModel: string | null;
   promptVersion: string | null;
   accessTokenHash: string | null;
+  /** Custom-tier quote set by staff (Prisma only; absent in the in-memory repo). */
+  quotedPriceCents?: number | null;
+  quotedMaxSuppliers?: number | null;
   createdAt: Date;
 }
 
