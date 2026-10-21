@@ -2,7 +2,8 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
   const { sent, error, next } = await searchParams;
   return (
     <div className="max-w-md space-y-5">
-      <h1 className="text-2xl font-semibold">Sign in</h1>
+      <h1 className="text-2xl font-semibold">Sign in or create an account</h1>
+      <p className="text-sm text-muted">New here? Enter your work email. The link creates your account; you then name your company on the dashboard.</p>
       {sent ? (
         <p className="text-sm">If that address can sign in, a link is on its way. It expires in 15 minutes.</p>
       ) : (

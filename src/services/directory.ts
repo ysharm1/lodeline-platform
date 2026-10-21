@@ -18,6 +18,16 @@ import { AuthorizationError } from "@/domain/errors";
 import { matchPackRows, rankListings, type MatchListing, type PartMatches } from "./matchmaker";
 import type { MatrixRow } from "./pack-matrix";
 import type { Material, Stage } from "@/domain/types";
+import { ACTIVITIES, type MarketplaceFilters } from "./marketplace";
+
+export interface MarketplaceRow extends ListingRow {
+  countries: string[];
+  activities: string[];
+  region: string | null;
+  hqCountry: string | null;
+  productionStatus: string | null;
+  listingStatus: string;
+}
 
 export interface ListingRow extends ListingForAnswer {
   website: string | null;
@@ -70,6 +80,44 @@ export class DirectoryService {
       ORDER BY "rank" DESC, "verifiedAt" DESC NULLS LAST, "name" ASC
       LIMIT ${opts.limit ?? 50}`;
     return rows.map((r) => ({ ...r, verified: !!r.verifiedAt, rank: Number(r.rank) }));
+  }
+
+  /**
+   * Signed-in marketplace (/app/marketplace). Unlike `search`, it also returns
+   * imported prospects (listingStatus = prospect), which are labelled
+   * "Unverified, from public sources". Hidden rows never appear.
+   */
+  async marketplace(f: MarketplaceFilters, opts: { limit?: number } = {}): Promise<MarketplaceRow[]> {
+    const where: Prisma.Sql[] = [Prisma.sql`"listingStatus" <> 'hidden'`, Prisma.sql`("published" = true OR "listingStatus" = 'prospect')`];
+    const q = f.q.trim();
+    if (q) where.push(Prisma.sql`${FTS} @@ websearch_to_tsquery('english', ${q})`);
+    if (f.materials.length) where.push(Prisma.sql`"materials" && ${f.materials}::"Material"[]`);
+    const stageOr: Prisma.Sql[] = [];
+    if (f.stages.length) stageOr.push(Prisma.sql`"stages" && ${f.stages}::"Stage"[]`);
+    if (f.activities.length) stageOr.push(Prisma.sql`"activities" && ${f.activities}::text[]`);
+    if (stageOr.length) where.push(Prisma.sql`(${Prisma.join(stageOr, " OR ")})`);
+    if (f.regions.length) where.push(Prisma.sql`"region" = ANY(${f.regions}::text[])`);
+    if (f.countries.length) where.push(Prisma.sql`("countryIso" = ANY(${f.countries}::text[]) OR "countries" && ${f.countries}::text[])`);
+    if (f.excludeCovered) where.push(Prisma.sql`("countryIso" IS NULL OR NOT ("countryIso" = ANY(${[...COVERED_COUNTRIES]}::text[]))) AND NOT ("countries" && ${[...COVERED_COUNTRIES]}::text[])`);
+    if (f.status === "verified") where.push(Prisma.sql`"verifiedAt" IS NOT NULL`);
+    if (f.status === "unverified") where.push(Prisma.sql`"verifiedAt" IS NULL`);
+    if (f.status === "prospect") where.push(Prisma.sql`"listingStatus" = 'prospect' AND "verifiedAt" IS NULL`);
+    const rank = q ? Prisma.sql`ts_rank(${FTS}, websearch_to_tsquery('english', ${q}))` : Prisma.sql`0`;
+    const rows = await this.d.db.$queryRaw<(Omit<MarketplaceRow, "verified">)[]>`
+      SELECT "id", "name", "summary", "website", "city", "countryIso", COALESCE("countries", ARRAY[]::text[]) AS "countries", "stages"::text[] AS "stages", "materials"::text[] AS "materials",
+             COALESCE("activities", ARRAY[]::text[]) AS "activities", "region", "hqCountry", "productionStatus", "listingStatus"::text AS "listingStatus",
+             "verifiedAt", "isExample", "latitude", "longitude", ${rank}::float8 AS "rank"
+      FROM "SupplierListing"
+      WHERE ${Prisma.join(where, " AND ")}
+      ORDER BY "rank" DESC, "verifiedAt" DESC NULLS LAST, "isExample" ASC, "name" ASC
+      LIMIT ${opts.limit ?? 300}`;
+    return rows.map((r) => ({ ...r, verified: !!r.verifiedAt, rank: Number(r.rank) }));
+  }
+
+  /** One marketplace listing (published or prospect; never hidden). */
+  async marketplaceListing(id: string) {
+    if (!/^[0-9a-f-]{36}$/.test(id)) return null;
+    return this.d.db.supplierListing.findFirst({ where: { id, listingStatus: { not: "hidden" }, OR: [{ published: true }, { listingStatus: "prospect" }] } });
   }
 
   /** Published listings outside the covered countries, for the matchmaker. */
@@ -132,6 +180,8 @@ export class DirectoryService {
       countryIso: toIso2(str("country", 60)),
       stages: list("stages", STAGES) as (typeof STAGES)[number][],
       materials: list("materials", MATERIALS) as (typeof MATERIALS)[number][],
+      // Only touched when the caller sends it, so admin edits keep imported activities.
+      ...(input.activities !== undefined ? { activities: list("activities", ACTIVITIES) } : {}),
       countries: [] as string[],
       published: input.published === true || input.published === "true" || input.published === "on",
       isExample: input.isExample === true || input.isExample === "true" || input.isExample === "on",
@@ -147,7 +197,7 @@ export class DirectoryService {
   async submitOwn(ctx: AuthContext, input: Record<string, unknown>) {
     if (ctx.role !== "buyer" && ctx.role !== "admin") throw new AuthorizationError("ROLE_FORBIDDEN", "Sign in with a company account to list your supplies.");
     const data = this.parseListingInput(input);
-    if (!data.stages.length || !data.materials.length) throw new ValidationError("SCOPE_REQUIRED", "Choose at least one stage and one material you supply.", "stages");
+    if ((!data.stages.length && !data.activities?.length) || !data.materials.length) throw new ValidationError("SCOPE_REQUIRED", "Choose at least one stage (or recycling / distribution) and one material you supply.", "stages");
     const orgId = await ensureOrg(this.d, ctx, data.name, ["buyer", "seller"]);
     await grantOrgRole(this.d, ctx.userId, orgId, "seller");
     const count = await this.d.db.supplierListing.count({ where: { orgId } });

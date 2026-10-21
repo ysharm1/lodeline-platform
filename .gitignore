@@ -11,3 +11,12 @@ coverage/
 .pgdata/
 .uploads/
 .outbox/
+
+# Supplier DB exports: never commit (contact data / real prospect rows).
+platform-seed.json
+suppliers.csv
+suppliers.json
+suppliers.sqlite*
+prospects-*.json
+new-prospects-*.csv
+supplier-db/

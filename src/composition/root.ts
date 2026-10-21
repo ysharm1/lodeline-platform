@@ -28,6 +28,7 @@ import { EvidenceIntakeService } from "@/services/evidence-intake";
 import { ReviewService } from "@/services/review";
 import { DirectoryService } from "@/services/directory";
 import { LeadService } from "@/services/leads";
+import { IntroService } from "@/services/intros";
 import { SupplierApplicationService } from "@/services/supplier-applications";
 import { VerificationService } from "@/services/verifications";
 import { RefreshService } from "@/services/refresh";
@@ -43,6 +44,8 @@ export interface Platform {
   review: ReviewService;
   directory: DirectoryService;
   leads: LeadService;
+  /** Marketplace "Request intro" (ContactRequest), routed to Lodeline staff. */
+  intros: IntroService;
   applications: SupplierApplicationService;
   /** Supplier-paid annual evidence review. */
   verifications: VerificationService;
@@ -133,6 +136,7 @@ function build(): Container {
         review: new ReviewService(deps),
         directory: new DirectoryService(deps),
         leads: new LeadService(deps),
+        intros: new IntroService(deps),
         applications: new SupplierApplicationService(deps),
         verifications: new VerificationService(deps, suppliers),
         refresh: new RefreshService(deps, packs),

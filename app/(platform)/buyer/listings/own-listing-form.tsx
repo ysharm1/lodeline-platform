@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 const STAGES: [string, string][] = [["mine", "Mining"], ["separation", "Separation / refining"], ["metal_alloy", "Metal / alloy"], ["magnet", "Magnet manufacture"], ["component", "Component"]];
+const ACTIVITIES: [string, string][] = [["recycling", "Recycling"], ["distribution", "Distribution"]];
 const MATERIALS: [string, string][] = [["ndfeb", "NdFeB magnet"], ["smco", "SmCo magnet"], ["tungsten", "Tungsten"], ["tantalum", "Tantalum"]];
 
 /** A buyer company lists what it supplies. Lodeline publishes it after a check. */
@@ -22,7 +23,7 @@ export function OwnListingForm() {
         const r = await fetch("/api/listings/mine", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: f.get("name"), summary: f.get("summary"), website: f.get("website"), city: f.get("city"), country: f.get("country"), stages: f.getAll("stages"), materials: f.getAll("materials") }),
+          body: JSON.stringify({ name: f.get("name"), summary: f.get("summary"), website: f.get("website"), city: f.get("city"), country: f.get("country"), stages: f.getAll("stages"), activities: f.getAll("activities"), materials: f.getAll("materials") }),
         });
         const j = await r.json().catch(() => ({}));
         setBusy(false);
@@ -37,7 +38,7 @@ export function OwnListingForm() {
       <input name="city" placeholder="City" className="rounded border border-line bg-ink px-2 py-1" />
       <input name="country" required placeholder="Country (e.g. US)" className="rounded border border-line bg-ink px-2 py-1" />
       <textarea name="summary" placeholder="What you supply" className="sm:col-span-2 rounded border border-line bg-ink px-2 py-1" />
-      <fieldset className="space-y-1"><legend className="text-muted">Stages</legend>{STAGES.map(([v, l]) => <label key={v} className="block"><input type="checkbox" name="stages" value={v} /> {l}</label>)}</fieldset>
+      <fieldset className="space-y-1"><legend className="text-muted">Stages</legend>{STAGES.map(([v, l]) => <label key={v} className="block"><input type="checkbox" name="stages" value={v} /> {l}</label>)}{ACTIVITIES.map(([v, l]) => <label key={v} className="block"><input type="checkbox" name="activities" value={v} /> {l}</label>)}</fieldset>
       <fieldset className="space-y-1"><legend className="text-muted">Materials</legend>{MATERIALS.map(([v, l]) => <label key={v} className="block"><input type="checkbox" name="materials" value={v} /> {l}</label>)}</fieldset>
       <div className="sm:col-span-2 flex items-center gap-3">
         <button disabled={busy} className="rounded bg-paper text-ink px-3 py-1.5 font-medium disabled:opacity-50">{busy ? "Saving…" : "Submit listing"}</button>

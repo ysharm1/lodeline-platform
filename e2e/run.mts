@@ -10,6 +10,7 @@
  *   5 supplier uploads, parsing, verbatim claims, covered-country flags, confidence
  *   6 staff review + one-click release   7 pack PDF (whole + per part)
  *   8 marketplace: directory + map, China-free filter, Ask, matchmaker, listing + verification, buyer lists own supplies
+ *   9 customer dashboard: account setup, Traces, Evidence packs, Marketplace + Request intro, Supply-chain map, My listings
  *
  * Safety: email goes to a local JSONL outbox (EMAIL_PROVIDER=file) and every
  * recipient must be a *.test address; Stripe is a local stand-in reached by the
@@ -503,6 +504,69 @@ async function main() {
       check((await buyer.html(`/buyer/packs/${packId}`)).status === 200, "dual-role buyer still reaches its packs");
     });
 
+    // ---------------------------------------------------------------- 9
+    await step(9, "Customer dashboard: account setup, Traces, Evidence packs, Marketplace + Request intro, Supply-chain map, My listings", async () => {
+      check((await anon.req("/app")).status === 307, "signed-out visitor sent to login from /app");
+      const tabs = await buyer.html("/app");
+      check(tabs.status === 200 && tabs.text.includes('data-testid="dashboard-tabs"') && ["Traces", "Evidence packs", "Marketplace", "Supply-chain map", "My listings"].every((t) => tabs.text.includes(`>${t}</a>`)), "dashboard renders the five tabs");
+      check(tabs.text.includes("https://lodeline-trace-demo.vercel.app/try") && tabs.text.includes("Try the live trace demo"), "Traces tab links to the live trace demo");
+      check(tabs.text.includes(`/buyer/packs/${packId}`) && /stage\(s\) documented/.test(tabs.text), "Traces tab lists the buyer's trace with stage coverage");
+      const packsTab = await buyer.html("/app/packs");
+      check(packsTab.status === 200 && packsTab.text.includes(`/api/packs/${packId}/pdf`), "Evidence packs tab links the finished pack PDF");
+
+      // New customer: magic-link sign-up lands on /app, names the company.
+      const newco = new Client(app!.base, "10.0.0.5");
+      const loc = await signIn(newco, "newco@e2e.lodeline.test", "");
+      check(new URL(loc, app!.base).pathname === "/app", `new buyer lands on the dashboard (got ${loc})`);
+      check((await newco.html("/app")).text.includes('data-testid="org-setup"'), "new buyer is asked to set up a company account");
+      const fd = new FormData();
+      fd.set("name", "New Co Motors (synthetic)");
+      const os = await newco.req("/api/org", { method: "POST", body: fd });
+      check(os.status === 303, `company account created (got ${os.status})`);
+      const nu = await db.user.findUniqueOrThrow({ where: { email: "newco@e2e.lodeline.test" }, include: { org: true, memberships: true } });
+      check(nu.org?.name === "New Co Motors (synthetic)" && nu.memberships.some((m) => m.isOrgAdmin && m.roles.includes("buyer")), "org + org-admin buyer membership created");
+      const home = await newco.html("/app");
+      check(home.text.includes("New Co Motors (synthetic)") && !home.text.includes('data-testid="org-setup"') && home.text.includes('data-testid="no-traces"'), "dashboard shows the company and an empty trace list");
+
+      // Marketplace: fictional prospects imported with the idempotent importer.
+      const { importSeed, parseSeed } = await import("../src/services/seed-import");
+      const seed = parseSeed(JSON.parse(readFileSync(join(ROOT, "test/fixtures/seed-example.json"), "utf8")));
+      const imp = await importSeed(db, seed);
+      const imp2 = await importSeed(db, seed);
+      check(imp.created === 3 && imp2.created === 0 && imp2.updated === 3 && imp.rejected.length === 2, "seed importer is idempotent and rejects covered-country / email rows");
+      const mk = await newco.html("/app/marketplace");
+      check(mk.status === 200 && !mk.text.includes("Marketplace unavailable"), `marketplace renders (got ${mk.status} ${mk.text.match(/Marketplace unavailable[^<]*/)?.[0] ?? ""})`);
+      check(mk.text.includes("Example Prospect Separation (fictional)"), `marketplace lists imported prospects (${mk.text.match(/(\d+) listing\(s\)/)?.[0]})`);
+      check(mk.text.includes("Unverified, from public sources") && mk.text.includes('data-testid="marketplace-map"'), "prospects labelled unverified, with the map");
+      check(!(await anon.html("/suppliers")).text.includes("Example Prospect Separation"), "prospects stay out of the public directory");
+      const tw = await newco.html("/app/marketplace?region=Taiwan&stage=separation");
+      check(tw.text.includes("Example Prospect Separation (fictional)") && !tw.text.includes("Example Prospect Recycler"), "region + stage filters");
+      check((await newco.html("/app/marketplace?stage=recycling")).text.includes("Example Prospect Recycler (fictional)"), "recycling activity filter");
+      const api = await newco.json<{ listings: { name: string; status: string }[] }>("/api/marketplace?status=prospect");
+      check(api.status === 200 && api.body.listings.length >= 3 && api.body.listings.every((l) => l.status === "Unverified, from public sources") && !JSON.stringify(api.body).includes("@"), "marketplace API: prospects only, no contact details");
+      check((await anon.req("/api/marketplace")).status === 401, "marketplace API needs sign-in");
+      const pl = await db.supplierListing.findUniqueOrThrow({ where: { sourceKey: "example-separation-tw" } });
+      const detail = await newco.html(`/app/marketplace/${pl.id}`);
+      check(detail.status === 200 && detail.text.includes('data-testid="request-intro"') && !/mailto:|tel:/.test(detail.text.split("<footer")[0]), "listing page has Request intro and no contact details");
+      const intro = await newco.json<{ id: string; duplicate: boolean }>("/api/intros", { method: "POST", json: { listingId: pl.id, message: "NdPr metal for sintered magnets (synthetic e2e)" } });
+      check(intro.status === 201 && !intro.body.duplicate, `intro requested (got ${intro.status} ${JSON.stringify(intro.body)})`);
+      check(mailTo("team@e2e.lodeline.test", /Intro request: Example Prospect Separation/).length === 1, "intro request routed to the Lodeline team inbox");
+      check((await newco.json<{ duplicate: boolean }>("/api/intros", { method: "POST", json: { listingId: pl.id } })).body.duplicate, "open request is not duplicated");
+      check((await admin.html("/admin/intros")).text.includes("Example Prospect Separation (fictional)"), "admin sees the intro request");
+      check((await admin.json(`/api/admin/intros/${intro.body.id}`, { method: "PATCH", json: { status: "introduced" } })).status === 200, "admin marks it introduced");
+      check((await newco.json(`/api/admin/intros/${intro.body.id}`, { method: "PATCH", json: { status: "closed" } })).status === 403, "buyer cannot change intro status");
+
+      // Supply-chain map linked to the trace's open stages.
+      const map = await buyer.html(`/app/map?trace=${packId}`);
+      check(map.status === 200 && map.text.includes('data-testid="supply-chain-map"') && map.text.includes('data-testid="stage-country-table"'), "supply-chain map renders with the stage x country table");
+      check(map.text.includes("Find a China-free supplier for this open stage") && map.text.includes("excludeCovered=1"), "open trace stages link to China-free marketplace searches");
+
+      // My listings (seller side).
+      const ml = await buyer.html("/app/listings");
+      check(ml.status === 200 && ml.text.includes("Magnet Assemblies") && ml.text.includes("seller role"), "My listings shows the seller's own listing");
+      check((await newco.html("/app/listings")).text.includes("Example Prospect Separation (fictional)"), "My listings shows the buyer's intro requests");
+    });
+
     // ---------------------------------------------------------------- safety
     const serverLog = log.join("");
     check(!/ 500 in \d/.test(serverLog) && !serverLog.includes("[api] unhandled error"), "no request returned a 500 / unhandled error during the run");
@@ -524,7 +588,7 @@ async function main() {
 main()
   .then(() => {
     printTable();
-    process.exit(results.length === 8 && results.every((r) => r.ok) ? 0 : 1);
+    process.exit(results.length === 9 && results.every((r) => r.ok) ? 0 : 1);
   })
   .catch((e) => {
     printTable();
