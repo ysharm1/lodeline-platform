@@ -284,8 +284,8 @@ async function main() {
         check(link, "supplier link present");
         return link.split("/s/")[1];
       };
-      portal.kj = await add("K&J Magnetics (test contact)", "kj-test@example.test", "US", ["BX041", "D82"]);
-      portal.wt = await add("Midwest Tungsten Service (test contact)", "tungsten-test@example.test", "US", ["40400-03140B2", "4SNC18F-W30M08B"]);
+      portal.kj = await add("Synthetic Magnet Supplier (TEST)", "kj-test@example.test", "US", ["BX041", "D82"]);
+      portal.wt = await add("Synthetic Tungsten Supplier (TEST)", "tungsten-test@example.test", "US", ["40400-03140B2", "4SNC18F-W30M08B"]);
       portal.kemet = await add("KEMET (test contact)", "kemet-test@example.test", "US", ["T491A106K016AT", "T356A685K006AT"]);
       portal.pui = await add("PUI Audio (test contact)", "pui-test@example.test", "US", ["AS04504AS"]);
       const pui = await supplierIp.html(`/s/${portal.pui}`);
@@ -298,13 +298,13 @@ async function main() {
       const wtp = await supplierIp.html(`/s/${portal.wt}`);
       check(wtp.text.includes('data-stage="mine"') && !wtp.text.includes('data-stage="magnet"'), "tungsten portal asks mine/separation/metal only");
       const fw = await supplierIp.json<{ requestId: string; emailed: boolean }>(`/api/s/${portal.kj}/forward`, { method: "POST", json: { stages: ["metal_alloy"], name: "Synthetic Alloy Supplier (TEST)", contactEmail: "alloy-test@example.test", country: "China" } });
-      check(fw.status === 201 && fw.body.emailed, `K&J forwards metal/alloy upstream (got ${fw.status} ${JSON.stringify(fw.body)})`);
+      check(fw.status === 201 && fw.body.emailed, `magnet supplier forwards metal/alloy upstream (got ${fw.status} ${JSON.stringify(fw.body)})`);
       const fm = mailTo("alloy-test@example.test")[0];
       check(fm && fm.text.includes("forwarded this request") && /metal\/alloy/.test(fm.text), "upstream supplier gets its own questionnaire, naming who forwarded it");
       portal.alloy = linkIn(fm.text, /https?:\/\/\S+\/s\/[A-Za-z0-9_-]+/)!.split("/s/")[1];
       const ap = await supplierIp.html(`/s/${portal.alloy}`);
       check(ap.text.includes("Forwarded to you by") && ap.text.includes('data-stage="metal_alloy"') && !ap.text.includes('data-stage="mine"'), "upstream portal shows only the forwarded stage");
-      check((await supplierIp.html(`/s/${portal.kj}`)).text.includes("Forwarded to Synthetic Alloy Supplier (TEST)"), "K&J portal shows the stage as forwarded");
+      check((await supplierIp.html(`/s/${portal.kj}`)).text.includes("Forwarded to Synthetic Alloy Supplier (TEST)"), "magnet supplier portal shows the stage as forwarded");
       const badStage = await supplierIp.json(`/api/s/${portal.kj}/forward`, { method: "POST", json: { stages: ["component"], name: "X", contactEmail: "x@example.test" } });
       check(badStage.status === 400, "cannot forward a stage that was not requested");
       check((await supplierIp.html(`/s/${"x".repeat(43)}`)).text.includes("Link unavailable"), "unknown token refused");

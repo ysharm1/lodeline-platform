@@ -75,7 +75,7 @@ export default async function PackPage() {
       <section className="space-y-2">
         <h2 className="font-semibold">What is included</h2>
         <ul className="list-disc pl-5 text-sm text-muted space-y-1">{INCLUDED.map((x) => <li key={x}>{x}</li>)}</ul>
-        <p className="text-sm">See the format: <a href="/sample-evidence-pack" className="underline">sample evidence pack</a>. Need a larger scope? <a href="/#contact" className="underline">Request a readiness call</a> or call Yash Sharma at <a href="tel:+16023159861" className="underline">(602) 315-9861</a>.</p>
+        <p className="text-sm">See the format: <a href="/sample-evidence-pack" className="underline">sample evidence pack</a>. Need a larger scope? <a href="/#contact" className="underline">Request a readiness call</a> or email <a href="mailto:info@lodeline.org" className="underline">info@lodeline.org</a>.</p>
       </section>
       <ConflictDisclosure />
       <Disclaimer />

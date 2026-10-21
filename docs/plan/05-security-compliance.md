@@ -42,6 +42,6 @@ Uploads stay **off, or locked down, until hosting and a CUI policy are decided.*
 ## This repo
 
 - `ysharm1/lodeline-platform` is **public by choice**: Yash made it public so Dylan can see it. Treat everything in it, including history, as visible to anyone.
-- **First step, before anything else:** remove the personal phone number from the footer of `app/(platform)/_components/app-shell.tsx`. It is also in git history, so consider whether that matters (TBD, Yash).
+- **First step, before anything else:** remove the personal phone number from the app and site pages (done in the "Remove sensitive info" PR). It remains in git history, so treat it as already public (history rewrite: TBD, Yash).
 - The plan docs and any other docs in this repo must **not contain contact data, emails, phone numbers or customer information**. Supplier contact data stays in the internal supplier DB (see 04).
 - Scan history for secrets and personal data, and rotate any keys that were ever committed (**TBD**: scan not done as part of this plan).

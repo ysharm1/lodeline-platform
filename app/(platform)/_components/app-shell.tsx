@@ -47,8 +47,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             Never upload drawings, controlled technical data or export-controlled (ITAR/CUI) information.
           </p>
           <p className="text-xs text-muted">
-            <a href="mailto:info@lodeline.org" className="underline">info@lodeline.org</a> · Yash Sharma{" "}
-            <a href="tel:+16023159861" className="underline">(602) 315-9861</a> · <a href="/for-suppliers" className="underline">For suppliers</a> ·{" "}
+            <a href="mailto:info@lodeline.org" className="underline">info@lodeline.org</a> · <a href="/for-suppliers" className="underline">For suppliers</a> ·{" "}
             <a href="/privacy" className="underline">Privacy</a>
           </p>
         </div>

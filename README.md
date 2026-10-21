@@ -4,7 +4,7 @@
 
 > Lodeline provides supply-chain documentation and analysis, not legal advice or government certification. Applicability, exceptions, and acceptance depend on the contract and the responsible reviewer.
 
-Contact: [info@lodeline.org](mailto:info@lodeline.org) · Yash Sharma, (602) 315-9861
+Contact: [info@lodeline.org](mailto:info@lodeline.org)
 
 **Stack**
 - Next.js 15 (App Router, TypeScript)
