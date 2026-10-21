@@ -22,9 +22,10 @@ describe("ported lodeline.org pages", () => {
       "acquisition.gov/dfars/252.225-7052",
       "mcs2026-rare-earths.pdf",
       "global-critical-minerals-outlook-2025",
-      "mailto:info@lodeline.org", "tel:+16023159861", "(602) 315-9861",
+      "mailto:info@lodeline.org",
       "not legal advice or government certification",
     ]) expect(home, s).toContain(s);
+    expect(home, "no phone link on public pages").not.toContain("tel:");
   });
   it("is a 1:1 copy: same visible text, links and classes as the live page", () => {
     const VENDOR = join(__dirname, "..", "..", "vendor", "lodeline-site");

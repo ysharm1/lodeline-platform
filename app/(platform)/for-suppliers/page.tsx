@@ -50,7 +50,7 @@ export default async function ForSuppliersPage({ searchParams }: { searchParams:
           </p>
         </div>
         <p className="text-sm text-muted">
-          Do not send drawings, controlled technical data or export-controlled information. Questions: <a className="underline" href="mailto:info@lodeline.org">info@lodeline.org</a> · Yash Sharma <a className="underline" href="tel:+16023159861">(602) 315-9861</a>
+          Do not send drawings, controlled technical data or export-controlled information. Questions: <a className="underline" href="mailto:info@lodeline.org">info@lodeline.org</a>
         </p>
         <Disclaimer />
       </section>

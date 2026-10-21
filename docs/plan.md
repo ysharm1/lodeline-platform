@@ -1,7 +1,6 @@
 # Lodeline: Repo Changes Plan (supersedes the magnets module in code-edits.md)
 
-Source reviewed: `ysharm1/LoadEnergy` read-only clone at `/workspace/LoadEnergy-ro`, commit `5efd998` (2026-10-11 22:09 PT). I could not refresh it (`gh` is not authenticated on the box), so check for any commits pushed after that date. Nothing was pushed and no PRs were opened.
-Prior spec: `/workspace/rare-earth/code-edits.md` (magnets P0 inside LoadEnergy). **This document replaces that plan.** See §5.
+Source reviewed: the LoadEnergy codebase (private), commit `5efd998`. This document replaces an earlier internal spec for a magnets module inside LoadEnergy. See §5.
 
 ---
 ## 1. Current repo summary (what exists)
@@ -29,10 +28,10 @@ Prior spec: `/workspace/rare-earth/code-edits.md` (magnets P0 inside LoadEnergy)
 
 **Recommend a new repo `ysharm1/lodeline`, a new Render service, and a new DB.** It is seeded by copying the scaffolding files listed in §4.
 Reasons:
-1. Different identity model. LoadEnergy requires a unique `User.phone` with phone login, while Lodeline needs email, magic links and supplier tokens. Changing a live pilot's auth for this is risky.
-2. Different domain and brand (lodeline.vercel.app, info@lodeline.org) and a different customer (defense/EV procurement vs Phoenix fleets). A shared DB mixes compliance-sensitive supplier docs with the fuel ledger.
-3. Compliance scope. The audit log, US-only storage, LLM no-retention and drawing rejection apply cleanly to a small, auditable codebase. Putting them in the diesel repo would pull it into scope.
-4. Independent deploys. A heavy PDF/LLM worker should not compete with the diesel PWA on a `starter` instance.
+1. Different identity model. LoadEnergy requires a unique `User.phone` with phone login, while Lodeline needs email, magic links and supplier tokens. Changing that app's auth for this is risky.
+2. Different domain and brand (lodeline.vercel.app, info@lodeline.org) and a different customer base. A shared DB mixes compliance-sensitive supplier docs with unrelated business data.
+3. Compliance scope. The audit log, US-only storage, LLM no-retention and drawing rejection apply cleanly to a small, auditable codebase. Putting them in the other repo would pull it into scope.
+4. Independent deploys. A heavy PDF/LLM worker should not compete with another app on a `starter` instance.
 5. Little code is actually shared. Only the layering pattern, sessions, audit, S3, the email port and the commission math carry over, and those are copied once.
 Cost: duplicated boilerplate, and fixes are not shared. Fine at this stage.
 
@@ -142,7 +141,7 @@ Start from LoadEnergy's `render.yaml`, renamed (`lodeline`, `lodeline-db`), with
 `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`, `@prisma/client`/`prisma` 6.19.3, `papaparse`, `exceljs`, `unpdf` (or `pdfjs-dist`), `@react-pdf/renderer`, `postmark` or `resend`, `stripe`, the LLM SDK, `zod` (LLM output validation), `file-type` (MIME sniffing). Drop `twilio` and `nodemailer` unless SMTP is kept as a fallback.
 
 ## 8. Leave untouched (LoadEnergy)
-Everything. The diesel pilot stays as it is: `prisma/schema.prisma` + its migration, `src/services/*`, `render.yaml`, `ROLE_NAVIGATION`. **Do not implement the magnets module from code-edits.md in LoadEnergy.** Open items from that spec, carried forward:
+Everything. That app stays as it is: `prisma/schema.prisma` + its migration, `src/services/*`, `render.yaml`, `ROLE_NAVIGATION`. **Do not implement the magnets module from code-edits.md in LoadEnergy.** Open items from that spec, carried forward:
 - Honeypot-only protection on public POSTs → replace with Turnstile + per-IP rate limit + size caps.
 - SMTP not configured in render.yaml → the new blueprint requires an email provider.
 - DFARS wording needs legal review → still open. Add it to the landing page, the audit report and the pack PDF disclaimer ("evidence compilation, not a compliance determination"; DFARS 252.225-7052 references reviewed by counsel).
@@ -151,7 +150,7 @@ Everything. The diesel pilot stays as it is: `prisma/schema.prisma` + its migrat
 **MVP (2–3 weeks, one dev)**
 - Wk1: scaffold the repo from the copied files, schema, email magic-link auth, S3 storage, audit log, free audit (parse → classify → stage rules → results page + lead capture email).
 - Wk2: Stripe Checkout for the pack, supplier records, tokenized upload portal, Postmark outreach + reminder cron, PDF text + claim extraction with citation verification, drawing rejection.
-- Wk3: admin review queue, pack PDF generator, the full audit-log view, Render deploy, a security pass (rate limits, token expiry, presigned short TTLs), the seed, 1–2 pilot buyers.
+- Wk3: admin review queue, pack PDF generator, the full audit-log view, Render deploy, a security pass (rate limits, token expiry, presigned short TTLs), the seed, first pilot buyers.
 
 **Later**
 - OCR for scanned certs (Textract us-west-2), supplier accounts, re-use of accepted claims across packs.
