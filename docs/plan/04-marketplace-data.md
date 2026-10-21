@@ -6,7 +6,7 @@ Seed the marketplace from the supplier DB export:
 
 `/workspace/lodeline-docs/supplier-db/platform-seed.json`
 
-(This path is on Lodeline's shared working machine, not in this repo.)
+(This path is on Lodeline's working machine, not in this repo. The importer takes the path at run time, from an env var or this default, and the file is gitignored.)
 
 Facts checked from the file on October 20, 2026 (`generated_at` 2026-10-20T18:28:33-07:00, `schema_version` 1):
 
@@ -36,7 +36,7 @@ Re-check these counts from the file at import time; the export is regenerated wh
 
 ## Never import
 
-`suppliers.csv`, `suppliers.json`, `suppliers.sqlite` (and its backups), `prospects-*.json`, `new-prospects-*.csv`. These hold contact emails, outreach notes and internal fields. Only `platform-seed.json` is buyer-facing.
+The supplier DB's full internal exports and prospect lists (CSV, JSON, SQLite and backups). These hold contact details and internal notes. Only `platform-seed.json` is buyer-facing.
 
 **Do not commit the seed file, any rows from it, or any contact data to a repo.** The import reads the file at run time.
 
