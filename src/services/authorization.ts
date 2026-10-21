@@ -13,10 +13,9 @@ export interface NavigationItem {
 
 export const ROLE_NAVIGATION: Record<Role, readonly NavigationItem[]> = {
   buyer: [
-    { id: "audits", label: "Parts audits", path: "/audit" },
-    { id: "packs", label: "Evidence packs", path: "/buyer/packs" },
-    { id: "directory", label: "Supplier directory", path: "/suppliers" },
-    { id: "listings", label: "My listings", path: "/buyer/listings" },
+    // The customer dashboard (Traces | Evidence packs | Marketplace | Supply-chain map | My listings).
+    { id: "dashboard", label: "Dashboard", path: "/app" },
+    { id: "audits", label: "Free parts check", path: "/audit" },
   ],
   supplier: [
     // Suppliers mainly act through tokenized links (/s/[token]); an account
@@ -32,6 +31,8 @@ export const ROLE_NAVIGATION: Record<Role, readonly NavigationItem[]> = {
     { id: "verifications", label: "Verifications", path: "/admin/verifications" },
     { id: "refresh", label: "Refresh plans", path: "/admin/refresh" },
     { id: "leads", label: "Leads", path: "/admin/leads" },
+    { id: "intros", label: "Intros", path: "/admin/intros" },
+    { id: "dashboard", label: "Dashboard", path: "/app" },
     { id: "referrals", label: "Referrals", path: "/admin/referrals" },
     { id: "audit-log", label: "Audit log", path: "/admin/audit-log" },
   ],

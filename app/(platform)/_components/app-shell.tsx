@@ -17,7 +17,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="flex gap-4 text-sm text-muted">
             {!ctx ? (
               <>
-                <Link href="/demo" className="hover:text-paper">Demo</Link>
+                <a href="https://lodeline-trace-demo.vercel.app/try" className="hover:text-paper" target="_blank" rel="noopener">Live trace demo</a>
                 <Link href="/audit" className="hover:text-paper">Free parts audit</Link>
                 <Link href="/suppliers" className="hover:text-paper">Supplier directory</Link>
                 <Link href="/pack" className="hover:text-paper">Evidence pack</Link>

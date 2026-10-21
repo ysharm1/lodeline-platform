@@ -27,10 +27,61 @@ Contact: [info@lodeline.org](mailto:info@lodeline.org)
 
 ---
 
+## Share it
+
+- **The code:** share https://github.com/ysharm1/lodeline-platform (public). The plan is in [`docs/plan/`](docs/plan/README.md); the customer dashboard is described below.
+- **The live trace demo (Dylan's app):** https://lodeline-trace-demo.vercel.app/try. The dashboard's Traces tab links to it.
+- **A running copy of this app:** not deployed yet. This repo has no Vercel or GitHub deployment integration, and lodeline.org is served by a different Vercel project (see [Deploy](#deploy)). To show it to someone today, run it locally (below) or import the repo into a new Vercel project with its own `*.vercel.app` URL. Do not move the lodeline.org domain without Yash.
+
+## Customer dashboard (`/app`)
+
+Sign in at `/login` with a work email (magic link; the first sign-in creates the account). The dashboard asks the new user to name their company; that creates the organization (buyer role) and an org-admin membership. Adding a listing under My listings also gives the organization the seller role.
+
+| Tab | Path | What it shows |
+|---|---|---|
+| Traces | `/app` | Prominent **Try the live trace demo** link, then the org's traces (evidence packs) with stage coverage: documented, open and covered-country stages |
+| Evidence packs | `/app/packs` | Finished packs with the page-cited PDF; packs in progress |
+| Marketplace | `/app/marketplace`, `/app/marketplace/[id]` | China-free supplier search with stage (incl. recycling and distribution), material, region, country and status filters, the grounded Ask box, a map, and **Request intro** |
+| Supply-chain map | `/app/map` | Leaflet map of suppliers by stage (mining → separation / refining → metal / alloy → magnet) with stage filters, a stage × country table, and each trace's open stages linked to "Find a China-free supplier for this open stage" |
+| My listings | `/app/listings` | Seller side: the org's own listings (submit, review status) and its intro requests |
+
+Rules the dashboard follows (docs/plan/05-security-compliance.md):
+- No new upload surface. The only parts-list upload is the existing free check (`/audit`), which rejects drawings and export-controlled markings.
+- Listing labels say what records show: **Verified from evidence** (a reviewer accepted supplier documents), **Unverified, from public sources** (imported prospects) or **Not verified**. Never "compliant" or "certified".
+- **Request intro** stores a `ContactRequest` and emails the Lodeline team (`LEADS_NOTIFY_EMAIL`, default info@lodeline.org). Supplier contact details are never shown. Staff handle requests at `/admin/intros`.
+- Prospects appear only in the signed-in marketplace. The public directory (`/suppliers`) shows published listings only.
+
+### Importing marketplace suppliers
+
+```bash
+npm run import:suppliers -- --dry-run                         # counts by region, no writes
+npm run import:suppliers                                      # reads $SUPPLIER_SEED_PATH, else /workspace/lodeline-docs/supplier-db/platform-seed.json
+npm run import:suppliers -- test/fixtures/seed-example.json  # fictional rows, for a local demo
+```
+
+- Input is the supplier DB's buyer-facing export only (`platform-seed.json`). **Never commit it**; it and the internal exports are in `.gitignore`.
+- Idempotent: keyed on the export's supplier `id` (`SupplierListing.sourceKey`). Rows a seller has claimed, or that were verified, are never overwritten. Rows dropped from the export are hidden, not deleted (`--keep-missing` turns this off).
+- Every row imports as `listingStatus = prospect`, unpublished and unverified (`--publish` also puts them in the public directory).
+- Rows with anything that looks like an email address, or with a location in China, Russia, Iran or North Korea, are rejected.
+- Positions are country centroids (approximate).
+
+### Defaults chosen for the plan's open questions
+
+| Question (docs/plan/04) | Default |
+|---|---|
+| Show unverified prospects although the export says `published: false`? | New `listingStatus` field (`prospect` / `listed` / `hidden`). Prospects show in the signed-in marketplace with the unverified label and stay out of the public directory unless imported with `--publish`. |
+| Recycling and distribution have no stage enum | Stored as `activities` on the listing, separate from the DFARS chain `stages`, so pack stage rules and matrices are unchanged. The marketplace stage filter accepts them. |
+| Materials that map to `other` | Kept as `other` (the chain enum is unchanged); the summary keeps the detail. |
+| Import overwrite rule | Claimed (`orgId`) or verified rows are skipped. |
+| Demo workspace → real account | Not applicable here: this app has no anonymous workspaces (Dylan's app does). New users name their company on first visit. |
+| `/demo` | Kept (its tests still pass). The signed-out nav now links to the live trace demo instead. |
+
 ## Product overview
 
 | Surface | Path | Who |
 |---|---|---|
+| Customer dashboard: Traces, Evidence packs, Marketplace, Supply-chain map, My listings | `/app/*` | buyer (and seller) |
+| Marketplace intro requests | `/admin/intros` | admin |
 | Marketing site (ported from lodeline.org) | `/`, `/sample-evidence-pack`, `/readiness-checklist`, `/industries/*`, `/privacy` | public |
 | 6-question readiness check (runs in the browser, answers never sent) | `/#check` | public |
 | Readiness-call request and checklist download (stored in Postgres, emailed to the team) | `/#contact`, `/#checklist` | public |
@@ -174,7 +225,7 @@ npm run build
 npm run e2e         # needs nothing running: starts a temp embedded Postgres, a fake Stripe API and `next dev`
 ```
 
-`e2e/run.mts` drives all 8 steps over HTTP using the public catalogue BOM in `e2e/fixtures/` and synthetic PDFs labelled "SYNTHETIC TEST DOCUMENT":
+`e2e/run.mts` drives all 9 steps over HTTP using the public catalogue BOM in `e2e/fixtures/` and synthetic PDFs labelled "SYNTHETIC TEST DOCUMENT":
 1. free audit (CSV and XLSX, checked against the answer key)
 2. sign-up
 3. Custom quote and Stripe checkout with a signed webhook
@@ -183,6 +234,7 @@ npm run e2e         # needs nothing running: starts a temp embedded Postgres, a 
 6. review and release
 7. full and per-part PDFs
 8. matchmaker, map, China-free filter and buyer listings
+9. customer dashboard: company setup, all five tabs, seed import (fictional fixture), Request intro and the supply-chain map
 
 Email goes to a file outbox (every recipient is `*.test`), so nothing is sent. Options:
 - `E2E_DATABASE_URL` uses an existing database whose name contains `e2e` or `test`. It is migrated and **truncated**.

@@ -18,6 +18,7 @@ const NAMES: Record<string, string> = {
   taiwan: "TW", philippines: "PH", indonesia: "ID", myanmar: "MM", burma: "MM", laos: "LA", "south africa": "ZA", rwanda: "RW",
   "democratic republic of the congo": "CD", drc: "CD", congo: "CG", austria: "AT", sweden: "SE", finland: "FI", norway: "NO",
   netherlands: "NL", belgium: "BE", spain: "ES", portugal: "PT", italy: "IT", poland: "PL", "czech republic": "CZ", czechia: "CZ",
+  greenland: "GL", angola: "AO", slovenia: "SI", malawi: "MW", namibia: "NA", denmark: "DK", "new zealand": "NZ", argentina: "AR",
   switzerland: "CH", israel: "IL", singapore: "SG", "hong kong": "HK", kazakhstan: "KZ", mongolia: "MN", bolivia: "BO", chile: "CL", peru: "PE",
 };
 

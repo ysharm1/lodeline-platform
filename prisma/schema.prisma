@@ -86,32 +86,34 @@ enum OutreachStatus {
 }
 
 model Organization {
-  id          String            @id @default(uuid())
-  name        String
+  id              String            @id @default(uuid())
+  name            String
   /// Legacy single-role label (buyer | supplier | operator). Use `roles` for new code.
-  kind        String
+  kind            String
   /// Capabilities of the organization; can hold both buyer and seller.
-  roles       OrgRole[]         @default([buyer])
-  country     String?
-  createdAt   DateTime          @default(now())
-  users       User[]
-  memberships Membership[]
-  audits    PartsAudit[]
-  listings  SupplierListing[]
-  packs     EvidencePack[]
+  roles           OrgRole[]         @default([buyer])
+  country         String?
+  createdAt       DateTime          @default(now())
+  users           User[]
+  memberships     Membership[]
+  audits          PartsAudit[]
+  listings        SupplierListing[]
+  packs           EvidencePack[]
+  contactRequests ContactRequest[]
 }
 
 model User {
-  id              String        @id @default(uuid())
+  id              String           @id @default(uuid())
   orgId           String?
-  org             Organization? @relation(fields: [orgId], references: [id])
-  role            Role          @default(buyer)
-  email           String        @unique
+  org             Organization?    @relation(fields: [orgId], references: [id])
+  role            Role             @default(buyer)
+  email           String           @unique
   name            String?
   emailVerifiedAt DateTime?
-  createdAt       DateTime      @default(now())
+  createdAt       DateTime         @default(now())
   sessions        Session[]
   memberships     Membership[]
+  contactRequests ContactRequest[]
 }
 
 /// A user's membership in an organization, with the roles they hold there.
@@ -157,28 +159,28 @@ model MagicLink {
 
 // 1) Free audit
 model PartsAudit {
-  id              String        @id @default(uuid())
-  orgId           String?
-  org             Organization? @relation(fields: [orgId], references: [id])
-  leadEmail       String
-  companyName     String?
-  sourceFileKey   String
-  sourceFileName  String
-  sourceSha256    String
-  rowCount        Int
-  status          AuditStatus
-  llmModel        String?
-  promptVersion   String?
-  accessTokenHash String?       @unique
+  id                 String        @id @default(uuid())
+  orgId              String?
+  org                Organization? @relation(fields: [orgId], references: [id])
+  leadEmail          String
+  companyName        String?
+  sourceFileKey      String
+  sourceFileName     String
+  sourceSha256       String
+  rowCount           Int
+  status             AuditStatus
+  llmModel           String?
+  promptVersion      String?
+  accessTokenHash    String?       @unique
   /// Custom-tier quote set by Lodeline staff for an audit larger than Standard.
   /// When set, the buyer can order a Custom pack at this fixed price.
   quotedPriceCents   Int?
   quotedMaxSuppliers Int?
   quotedAt           DateTime?
   quotedById         String?
-  createdAt       DateTime      @default(now())
-  parts           AuditPart[]
-  pack            EvidencePack?
+  createdAt          DateTime      @default(now())
+  parts              AuditPart[]
+  pack               EvidencePack?
 }
 
 model AuditPart {
@@ -212,15 +214,15 @@ model AuditPart {
 
 // 2) Evidence pack
 model EvidencePack {
-  id               String            @id @default(uuid())
-  auditId          String            @unique
-  audit            PartsAudit        @relation(fields: [auditId], references: [id])
+  id               String               @id @default(uuid())
+  auditId          String               @unique
+  audit            PartsAudit           @relation(fields: [auditId], references: [id])
   orgId            String
-  status           PackStatus        @default(draft)
-  org              Organization      @relation(fields: [orgId], references: [id])
+  status           PackStatus           @default(draft)
+  org              Organization         @relation(fields: [orgId], references: [id])
   createdById      String?
   /// Tier chosen from the audit's scope when the pack was ordered.
-  tier             PackTierLevel     @default(starter)
+  tier             PackTierLevel        @default(starter)
   priceCents       Int
   stripeCheckoutId String?
   paidAt           DateTime?
@@ -228,7 +230,7 @@ model EvidencePack {
   generatedAt      DateTime?
   /// Set when staff release the reviewed pack to the buyer (status delivered).
   releasedAt       DateTime?
-  createdAt        DateTime          @default(now())
+  createdAt        DateTime             @default(now())
   requests         SupplierRequest[]
   refresh          RefreshSubscription?
 }
@@ -246,27 +248,27 @@ model Supplier {
 /// A request for documents from one supplier. It belongs to EITHER a buyer's
 /// evidence pack (packId) OR a supplier-paid verification (verificationId).
 model SupplierRequest {
-  id              String             @id @default(uuid())
-  packId          String?
-  pack            EvidencePack?      @relation(fields: [packId], references: [id])
-  verificationId  String?
-  verification    SupplierVerification? @relation(fields: [verificationId], references: [id], onDelete: Restrict)
-  supplierId      String
-  supplier        Supplier           @relation(fields: [supplierId], references: [id])
-  partIds         String[]
-  stagesRequested Stage[]
-  tokenHash       String             @unique
+  id                      String                @id @default(uuid())
+  packId                  String?
+  pack                    EvidencePack?         @relation(fields: [packId], references: [id])
+  verificationId          String?
+  verification            SupplierVerification? @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  supplierId              String
+  supplier                Supplier              @relation(fields: [supplierId], references: [id])
+  partIds                 String[]
+  stagesRequested         Stage[]
+  tokenHash               String                @unique
   /// AES-256-GCM ciphertext of the raw token so reminders can resend the same link.
-  tokenCiphertext String?
-  tokenExpiresAt  DateTime
-  createdAt       DateTime           @default(now())
-  revokedAt       DateTime?
-  outreachStatus  OutreachStatus     @default(queued)
-  lastEmailAt     DateTime?
-  reminderCount   Int                @default(0)
-  nextReminderAt  DateTime?
-  documents       EvidenceDocument[]
-  emails          OutreachEmail[]
+  tokenCiphertext         String?
+  tokenExpiresAt          DateTime
+  createdAt               DateTime              @default(now())
+  revokedAt               DateTime?
+  outreachStatus          OutreachStatus        @default(queued)
+  lastEmailAt             DateTime?
+  reminderCount           Int                   @default(0)
+  nextReminderAt          DateTime?
+  documents               EvidenceDocument[]
+  emails                  OutreachEmail[]
   /// Supplier's permission to keep the reviewed documents from this request on
   /// file and reuse them for the supplier's other customers. Null = no consent.
   reuseConsentAt          DateTime?
@@ -276,9 +278,9 @@ model SupplierRequest {
   reuseConsentWithdrawnAt DateTime?
   /// Set when a supplier forwarded some of its stages to its own upstream
   /// supplier from the portal; the child request carries those stages.
-  parentRequestId String?
-  parent          SupplierRequest?  @relation("ForwardedRequests", fields: [parentRequestId], references: [id])
-  forwarded       SupplierRequest[] @relation("ForwardedRequests")
+  parentRequestId         String?
+  parent                  SupplierRequest?      @relation("ForwardedRequests", fields: [parentRequestId], references: [id])
+  forwarded               SupplierRequest[]     @relation("ForwardedRequests")
 
   @@index([nextReminderAt])
   @@index([parentRequestId])
@@ -363,11 +365,11 @@ model AuditEntry {
 
 // 3) Marketplace (P2)
 model SupplierListing {
-  id                      String        @id @default(uuid())
+  id                      String                 @id @default(uuid())
   orgId                   String?
-  org                     Organization? @relation(fields: [orgId], references: [id])
+  org                     Organization?          @relation(fields: [orgId], references: [id])
   name                    String
-  summary                 String        @default("")
+  summary                 String                 @default("")
   website                 String?
   city                    String?
   countryIso              String?
@@ -375,19 +377,70 @@ model SupplierListing {
   latitude                Float?
   longitude               Float?
   geocodeProvider         String?
-  isExample               Boolean       @default(false)
+  isExample               Boolean                @default(false)
   verifiedFromDocumentIds String[]
-  createdAt               DateTime      @default(now())
-  updatedAt               DateTime      @updatedAt
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
   stages                  Stage[]
   materials               Material[]
   countries               String[]
   verifiedAt              DateTime?
   verifiedFromClaimIds    String[]
-  published               Boolean       @default(false)
+  published               Boolean                @default(false)
   referrals               Referral[]
   application             SupplierApplication?
   verifications           SupplierVerification[]
+  /// Import key for rows from the supplier DB export (its `id` slug). Null for
+  /// listings created in the app. See scripts/import-suppliers.ts.
+  sourceKey               String?                @unique
+  /// prospect = unverified, from public sources (imported); listed = created
+  /// or approved in the app; hidden = withdrawn (e.g. dropped from the export).
+  listingStatus           ListingStatus          @default(listed)
+  /// Display-only fields from public sources.
+  region                  String?
+  hqCountry               String?
+  /// producing | pilot | development | exploration | unknown
+  productionStatus        String?
+  publicSources           String[]               @default([])
+  /// Supplier activities outside the DFARS mine-to-component chain
+  /// (recycling, distribution). Kept apart from `stages` so pack stage rules
+  /// are unchanged.
+  activities              String[]               @default([])
+  contactRequests         ContactRequest[]
+
+  @@index([listingStatus])
+}
+
+enum ListingStatus {
+  prospect
+  listed
+  hidden
+}
+
+enum ContactRequestStatus {
+  new
+  introduced
+  closed
+}
+
+/// "Request intro" from a buyer to a marketplace listing. Routed to Lodeline
+/// staff, who make the introduction. Supplier contact details are never shown.
+model ContactRequest {
+  id        String               @id @default(uuid())
+  listingId String
+  listing   SupplierListing      @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  orgId     String?
+  org       Organization?        @relation(fields: [orgId], references: [id])
+  userId    String
+  user      User                 @relation(fields: [userId], references: [id])
+  message   String               @default("")
+  status    ContactRequestStatus @default(new)
+  createdAt DateTime             @default(now())
+  handledAt DateTime?
+
+  @@index([listingId])
+  @@index([orgId])
+  @@index([status])
 }
 
 enum VerificationStatus {

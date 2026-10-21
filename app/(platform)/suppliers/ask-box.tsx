@@ -3,7 +3,8 @@ import { useState } from "react";
 
 interface Row { id: string; name: string; countryIso: string | null; isExample: boolean; verified: boolean }
 
-export function AskBox() {
+/** `hrefBase`: where listing links point (public directory or the signed-in marketplace). */
+export function AskBox({ hrefBase = "/suppliers" }: { hrefBase?: string } = {}) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<{ answer: string; citedIds: string[]; listings: Row[]; mode: string } | null>(null);
@@ -33,7 +34,7 @@ export function AskBox() {
           <ol className="list-decimal pl-5 text-muted">
             {res.listings.map((l) => (
               <li key={l.id} className={res.citedIds.includes(l.id) ? "" : "opacity-60"}>
-                <a className="underline" href={`/suppliers/${l.id}`}>{l.name}</a> {l.countryIso ? `(${l.countryIso})` : ""} {l.verified ? "· verified" : ""} {l.isExample ? "· example" : ""}
+                <a className="underline" href={`${hrefBase}/${l.id}`}>{l.name}</a> {l.countryIso ? `(${l.countryIso})` : ""} {l.verified ? "· verified" : ""} {l.isExample ? "· example" : ""}
               </li>
             ))}
           </ol>
