@@ -17,10 +17,11 @@ Lodeline helps US defense suppliers show that the magnets, tungsten and tantalum
 | [05-security-compliance.md](05-security-compliance.md) | Data we must not hold, uploads, AI use, claims we must not make, repo hygiene |
 | [06-roadmap.md](06-roadmap.md) | Phases 0 to 5 with owners, and open questions for Dylan |
 
-## Owners (placeholders)
+## Owners
 
 - Dylan: app
 - Yash: sales and data
-- Delilah: Taiwan supplier side
+
+Helper: Delilah helps on Taiwan-side supplier calls and translation. She is not an owner.
 
 Unknowns are marked **TBD** throughout.

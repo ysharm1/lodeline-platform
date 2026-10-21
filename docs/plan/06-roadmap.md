@@ -1,6 +1,6 @@
 # 06. Roadmap
 
-Owners are placeholders: **Dylan** (app), **Yash** (sales and data), **Delilah** (Taiwan supplier side). Dates beyond Phase 0 are **TBD**.
+Owners: **Dylan** (app) and **Yash** (sales and data). **Delilah** helps on the Taiwan supplier side (calls and translation); she is a helper, not an owner. Dates beyond Phase 0 are **TBD**.
 
 The validation rule from 01 applies throughout: if fewer than 3 of about 40 buyers would pay for a trace, stop or change direction before Phase 2.
 
@@ -28,7 +28,7 @@ The validation rule from 01 applies throughout: if fewer than 3 of about 40 buye
 - Block empty fields.
 - Clear stale messages.
 
-**Supplier portal polish (Dylan, Delilah)**
+**Supplier portal polish (Dylan; Delilah helps check the 繁中 text)**
 - Instant language toggle (EN / 繁中).
 - Read-only after submit.
 - Normalise 澳洲 to "Australia".
@@ -61,11 +61,11 @@ The validation rule from 01 applies throughout: if fewer than 3 of about 40 buye
 - `/app/map`: mine → refine → alloy → magnet, by country and supplier.
 - Coverage gaps from traces (covered-country or undocumented stages), each with "Find a China-free supplier for this open stage".
 
-## Phase 4: My listings and verification (Dylan, Delilah, Yash)
+## Phase 4: My listings and verification (Dylan, Yash)
 
 - `/app/listings`: sellers claim and edit their own listings (two-sided marketplace).
 - Verification workflow: prospect → verified from checked documents, with expiry (see 04).
-- Delilah leads Taiwan supplier onboarding.
+- Taiwan supplier onboarding: Yash owns it, with Delilah helping on calls and translation.
 
 ## Phase 5: later
 

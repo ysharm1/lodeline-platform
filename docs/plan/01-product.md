@@ -37,7 +37,7 @@ The annual plan covers: new parts, supplier changes, re-checks when documents ex
 ## How a trace works
 
 1. Customer sends a parts list and supplier names. No controlled drawings, no CUI, no ITAR/EAR technical data.
-2. We send supplier questionnaires up the chain, tier by tier, until we reach the mine. Dylan and Delilah cover Taiwan and wider Asia in Mandarin.
+2. We send supplier questionnaires up the chain, tier by tier, until we reach the mine. Dylan covers Taiwan and wider Asia in Mandarin, with Delilah helping on Taiwan-side calls and translation.
 3. Suppliers return certificates and declarations. AI reads them and proposes records; **a human confirms every record**.
 4. We flag any step that is in China, Russia, Iran or North Korea, and any step with no documents.
 5. We deliver:
